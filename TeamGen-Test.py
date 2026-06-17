@@ -13,7 +13,6 @@ def build_full_roster(factory, team_name, is_expansion=True, is_minor=False, lea
     """Generates a complete 26-man roster (13 Hitters, 13 Pitchers) and assigns positions/roles."""
     
     # --- 1. GENERATE HITTERS ---
-    # Determine the 13 positions first
     base_positions = ["C", "1B", "2B", "3B", "SS", "LF", "CF", "RF"]
     extra_positions = random.sample(base_positions, 5) # 5 duplicates for the bench/DH
     assigned_positions = base_positions + extra_positions
@@ -21,10 +20,7 @@ def build_full_roster(factory, team_name, is_expansion=True, is_minor=False, lea
     
     hitters = []
     for pos in assigned_positions:
-        # Pass the exact position into the factory to trigger the correct archetype!
         player = factory.generate_inaugural_hitter(pos, is_expansion, is_minor, league_tier)
-        
-        # The new factory already sets player.assigned_pos inside the generation
         player.dh_status = "No"
         player.role_order = "Bench"
         hitters.append(player)
@@ -53,7 +49,6 @@ def build_full_roster(factory, team_name, is_expansion=True, is_minor=False, lea
         player.role_order = str(batting_orders[idx])
 
     # --- 2. GENERATE PITCHERS ---
-    # Your pitcher generation was already perfect because you were passing the role string!
     pitchers = [
         factory.generate_inaugural_pitcher("SP", is_expansion, is_minor, league_tier) for _ in range(5)
     ] + [
@@ -77,25 +72,25 @@ def build_full_roster(factory, team_name, is_expansion=True, is_minor=False, lea
 
 def build_franchise(factory, team_name):
     """Builds a 52-man franchise block: 26 Majors, 26 Minors."""
-    
-    # 1. Generate the Major League Squad
     majors_roster = build_full_roster(factory, team_name, is_expansion=False, is_minor=False, league_tier=1)
-    
-    # 2. Generate the Minor League Squad
     minors_roster = build_full_roster(factory, team_name, is_expansion=False, is_minor=True, league_tier=2)
     
-    # 3. Override the Role/Order for all minor leaguers to say "Minors"
     for player in minors_roster:
         player.role_order = "Minors"
         
-    # Merge them together (Majors first, then Minors)
     return majors_roster + minors_roster
 
 def flatten_player(player, team_name):
-    """Extracts the generated player attributes into a flat array for Google Sheets."""
+    """Extracts the generated player stats into a flat array for Google Sheets."""
     attr = player.attributes
     is_pitcher = player.assigned_pos == "P"
     stamina = attr['pitching'].get('stamina', 100) if is_pitcher else attr['batting'].get('stamina', 100)
+    
+    b = attr.get('batting', {})
+    r = attr.get('baserunning', {})
+    f = attr.get('fielding', {})
+    p = attr.get('pitching', {})
+    dev = attr.get('development', {})
     
     return [
         player.player_id, 
@@ -104,37 +99,62 @@ def flatten_player(player, team_name):
         player.assigned_pos, 
         player.role_order, 
         player.dh_status,
-        attr['development']['age'], 
-        attr['development']['archetype'],
-        attr['batting'].get('contact', 0), 
-        attr['batting'].get('power', 0), 
-        attr['batting'].get('discipline', 0),
-        attr['fielding'].get('range', 0), 
-        attr['fielding'].get('glove', 0), 
-        attr['fielding'].get('arm', 0),
+        dev.get('age', 18), 
+        dev.get('archetype', 'Unknown'),
+        
+        # Batting
+        player.contact, b.get('timing', 0), b.get('barreling', 0),
+        player.power, b.get('strength', 0), b.get('bat_speed', 0), b.get('elevation', 0),
+        player.discipline, b.get('eye', 0), b.get('restraint', 0),
+        
+        # Baserunning
+        player.speed, r.get('sprint_speed', 0), r.get('instincts', 0),
+        
+        # Fielding (Range incorporates Sprint Speed under the hood, but the raw defensive sub-stat is Reaction)
+        player.range, f.get('reaction', 0), 
+        player.glove, 
+        player.arm, f.get('arm_strength', 0), f.get('arm_accuracy', 0),
+        
+        # Stamina
         stamina, 
         stamina, 
-        attr['pitching'].get('velocity', 0), 
-        attr['pitching'].get('control', 0), 
-        attr['pitching'].get('movement', 0)
+        
+        # Pitching
+        player.velocity, p.get('arm_speed', 0), p.get('deception', 0),
+        player.control, p.get('accuracy', 0), p.get('command', 0),
+        player.movement, p.get('spin_rate', 0), p.get('bite', 0)
     ]
 
 def main():
     factory = PlayerFactory(current_season=2026)
     
-    headers = ["ID", "Name", "Team", "Pos", "Role/Order", "DH", "Age", "Arch", 
-               "Contact", "Power", "Disc", "Range", "Glove", "Arm", 
-               "Max Stam", "Cur Stam", "Velo", "Control", "Move"]
+    headers = [
+        "ID", "Name", "Team", "Pos", "Role/Order", "DH", "Age", "Arch", 
+        
+        "Contact", "Con.Timing", "Con.Barrel", 
+        "Power", "Pow.Str", "Pow.BatSpd", "Pow.Elev", 
+        "Disc", "Disc.Eye", "Disc.Restr", 
+        
+        "Speed", "Spd.Sprint", "Spd.Inst", 
+        
+        "Range", "Rng.React", 
+        "Glove", 
+        "Arm", "Arm.Str", "Arm.Acc", 
+        
+        "Max Stam", "Cur Stam", 
+        
+        "Velo", "Vel.ArmSpd", "Vel.Decept", 
+        "Control", "Ctrl.Acc", "Ctrl.Cmd", 
+        "Move", "Mov.Spin", "Mov.Bite"
+    ]
     
     all_players_data = [headers]
     
     print("Beginning Franchise Generation...")
     
-    # Only loop 1 to 8 now, because every team is a full Franchise
     for i in range(1, 9):
         team_name = f"Team{i}"
         
-        # Build the 52-man mega-roster
         franchise_roster = build_franchise(factory, team_name)
         print(f"Generated 52-man Franchise block for {team_name}...")
         
@@ -144,14 +164,12 @@ def main():
             team_rows.append(row)
             all_players_data.append(row)
             
-        # Update Individual Team Tab
         ws = SHEET.worksheet(team_name)
         ws.clear()
         ws.append_row(headers)
         ws.append_rows(team_rows)
         print(f"Successfully exported {team_name} to Sheets.")
         
-    # Update Master "All" Tab
     all_players_ws = SHEET.worksheet("All")
     all_players_ws.clear()
     all_players_ws.append_rows(all_players_data)

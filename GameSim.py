@@ -116,8 +116,7 @@ class SimulationEngine:
         self._extract_post_game_data(home_team, home_obj)
 
     def _build_team_object(self, team_name, starting_pitcher_role):
-        """Converts flat Google Sheets data into complex Team and Player objects.
-        Guarantees batting order matches the 1-9 assignments exactly."""
+        """Converts flat Google Sheets data into complex Team and Player objects using 19 sub-stats."""
         team_rows = self.rosters[team_name]
         
         hitters = []
@@ -127,31 +126,43 @@ class SimulationEngine:
         
         for row in team_rows:
             attributes = {
-                "bats": "R", "throws": "R",
+                "bats": "R", "throws": "R",  # Defaulting as it isn't in sheet export currently
                 "batting": {
-                    "contact": int(row.get("Contact", 0) or 0),
-                    "power": int(row.get("Power", 0) or 0),
-                    "discipline": int(row.get("Disc", 0) or 0),
+                    "timing": int(row.get("Con.Timing", 0) or 0),
+                    "barreling": int(row.get("Con.Barrel", 0) or 0),
+                    "strength": int(row.get("Pow.Str", 0) or 0),
+                    "bat_speed": int(row.get("Pow.BatSpd", 0) or 0),
+                    "elevation": int(row.get("Pow.Elev", 0) or 0),
+                    "eye": int(row.get("Disc.Eye", 0) or 0),
+                    "restraint": int(row.get("Disc.Restr", 0) or 0),
                     "stamina": int(row.get("Max Stam", 0) or 0)
+                },
+                "baserunning": {
+                    "sprint_speed": int(row.get("Spd.Sprint", 0) or 0),
+                    "instincts": int(row.get("Spd.Inst", 0) or 0)
+                },
+                "fielding": {
+                    "reaction": int(row.get("Rng.React", 0) or 0),
+                    "glove": int(row.get("Glove", 0) or 0),
+                    "arm_strength": int(row.get("Arm.Str", 0) or 0),
+                    "arm_accuracy": int(row.get("Arm.Acc", 0) or 0)
                 },
                 "pitching": {
-                    "velocity": int(row.get("Velo", 0) or 0),
-                    "control": int(row.get("Control", 0) or 0),
-                    "movement": int(row.get("Move", 0) or 0),
+                    "arm_speed": int(row.get("Vel.ArmSpd", 0) or 0),
+                    "deception": int(row.get("Vel.Decept", 0) or 0),
+                    "accuracy": int(row.get("Ctrl.Acc", 0) or 0),
+                    "command": int(row.get("Ctrl.Cmd", 0) or 0),
+                    "spin_rate": int(row.get("Mov.Spin", 0) or 0),
+                    "bite": int(row.get("Mov.Bite", 0) or 0),
                     "stamina": int(row.get("Max Stam", 0) or 0)
-                },
-                "baserunning": {"speed": 75},
-                "fielding": {
-                    "range": int(row.get("Range", 0) or 0),
-                    "glove": int(row.get("Glove", 0) or 0),
-                    "arm": int(row.get("Arm", 0) or 0)
                 },
                 "development": {
                     "age": int(row.get("Age", 18) or 18),
-                    "archetype": str(row.get("Arch", "Balanced"))
+                    "archetype": str(row.get("Arch", "Unknown"))
                 },
                 "strategy": {},
-                "role": str(row.get("Role/Order", "")).strip() 
+                "role": str(row.get("Role/Order", "")).strip(),
+                "assigned_pos": str(row.get("Pos", ""))
             }
             
             player = Player(row["ID"], row["Name"], attributes)
@@ -167,11 +178,11 @@ class SimulationEngine:
             elif player.assigned_pos == "P":
                 if role == starting_pitcher_role:
                     starting_pitcher = player
-                elif role != "Bench":
+                elif role != "Bench" and role != "Minors":
                     bullpen.append(player)
 
             # Assign defense dictionary
-            if player.assigned_pos and player.assigned_pos != "DH":
+            if player.assigned_pos and player.assigned_pos != "DH" and player.assigned_pos != "P":
                 defense[player.assigned_pos] = player
                 
         if starting_pitcher:
