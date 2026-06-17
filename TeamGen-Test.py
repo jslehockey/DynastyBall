@@ -1,31 +1,33 @@
 import random
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
-from models import Player 
-from Pfactory import PlayerFactory 
+from models import Player, Team, LeagueEnvironment
+from game_flow import FullGame
+from Pfactory import PlayerFactory
 
 # --- CONFIGURATION ---
 SPREADSHEET_ID = "1mC6-qF2_niu5756t5Q1yI-QJL_fZcvaF_KkOTrHX3Yc"
-SCOPES = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-CREDS = ServiceAccountCredentials.from_json_keyfile_name('credentials.json', SCOPES)
-CLIENT = gspread.authorize(CREDS)
+CLIENT = gspread.service_account(filename='credentials.json')
 SHEET = CLIENT.open_by_key(SPREADSHEET_ID)
 
 def build_full_roster(factory, team_name, is_expansion=True, is_minor=False, league_tier=1):
     """Generates a complete 26-man roster (13 Hitters, 13 Pitchers) and assigns positions/roles."""
     
     # --- 1. GENERATE HITTERS ---
-    hitters = [factory.generate_inaugural_hitter(is_expansion, is_minor, league_tier) for _ in range(13)]
-    
+    # Determine the 13 positions first
     base_positions = ["C", "1B", "2B", "3B", "SS", "LF", "CF", "RF"]
     extra_positions = random.sample(base_positions, 5) # 5 duplicates for the bench/DH
     assigned_positions = base_positions + extra_positions
     random.shuffle(assigned_positions)
     
-    for idx, player in enumerate(hitters):
-        player.assigned_pos = assigned_positions[idx]
+    hitters = []
+    for pos in assigned_positions:
+        # Pass the exact position into the factory to trigger the correct archetype!
+        player = factory.generate_inaugural_hitter(pos, is_expansion, is_minor, league_tier)
+        
+        # The new factory already sets player.assigned_pos inside the generation
         player.dh_status = "No"
         player.role_order = "Bench"
+        hitters.append(player)
 
     # Separate Starters vs Bench
     starters = []
@@ -51,6 +53,7 @@ def build_full_roster(factory, team_name, is_expansion=True, is_minor=False, lea
         player.role_order = str(batting_orders[idx])
 
     # --- 2. GENERATE PITCHERS ---
+    # Your pitcher generation was already perfect because you were passing the role string!
     pitchers = [
         factory.generate_inaugural_pitcher("SP", is_expansion, is_minor, league_tier) for _ in range(5)
     ] + [

@@ -1,15 +1,11 @@
-
 import random
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
 from models import Player, Team, LeagueEnvironment
 from game_flow import FullGame
 
 # --- CONFIGURATION ---
 SPREADSHEET_ID = "1mC6-qF2_niu5756t5Q1yI-QJL_fZcvaF_KkOTrHX3Yc"
-SCOPES = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-CREDS = ServiceAccountCredentials.from_json_keyfile_name('credentials.json', SCOPES)
-CLIENT = gspread.authorize(CREDS)
+CLIENT = gspread.service_account(filename='credentials.json')
 SHEET = CLIENT.open_by_key(SPREADSHEET_ID)
 
 class SimulationEngine:
@@ -317,10 +313,7 @@ class SimulationEngine:
         # ... (Existing export_all code remains unchanged)
         pass 
 
-
-# ==========================================
 # TEST THE ENGINE: PLAY-BY-PLAY BROADCAST
-# ==========================================
 def print_box_score(game):
     left_lines = []
     
@@ -388,9 +381,7 @@ def print_box_score(game):
     build_team_stats(game.away)
     build_team_stats(game.home)
 
-    # ---------------------------------------------------------
     # RIGHT COLUMN: SCORING PLAYS
-    # ---------------------------------------------------------
     right_lines = []
     right_lines.append("SCORING PLAYS & EVENTS")
     right_lines.append("="*50)
@@ -404,9 +395,7 @@ def print_box_score(game):
             right_lines.append(f"{inning_str} {event_str} - {play['description']}")
             right_lines.append("")
 
-    # ---------------------------------------------------------
     # COMBINE AND PRINT SIDE-BY-SIDE
-    # ---------------------------------------------------------
     max_lines = max(len(left_lines), len(right_lines))
     print("\n")
     for i in range(max_lines):
