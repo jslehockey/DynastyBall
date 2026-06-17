@@ -1,0 +1,9 @@
+import pandas as pd
+
+file_path = r'C:\Users\jsleh\OneDrive\Documents\SimGame\DynastyBaseballSim.xlxs'
+
+df_home = pd.read_excel(file_path, sheet_name='Home')
+#df_away = pd.read_excel(file_path, sheet_name='Away')
+
+#print(df_home.head())
+#print(df_away.home.head())
