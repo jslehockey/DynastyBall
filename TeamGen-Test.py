@@ -88,7 +88,7 @@ def flatten_player(player, team_name):
     
     b = attr.get('batting', {})
     r = attr.get('baserunning', {})
-    f = attr.get('fielding', {})
+    d = attr.get('defense', {}) 
     p = attr.get('pitching', {})
     dev = attr.get('development', {})
     
@@ -110,10 +110,13 @@ def flatten_player(player, team_name):
         # Baserunning
         player.speed, r.get('sprint_speed', 0), r.get('instincts', 0),
         
-        # Fielding (Range incorporates Sprint Speed under the hood, but the raw defensive sub-stat is Reaction)
-        player.range, f.get('reaction', 0), 
-        player.glove, 
-        player.arm, f.get('arm_strength', 0), f.get('arm_accuracy', 0),
+       # Defense (Flattened into individual values)
+        player.defense['overall'], 
+        player.defense['range'], 
+        player.defense['reaction'], 
+        player.defense['glove'], 
+        player.defense['arm_str'], 
+        player.defense['arm_acc'],
         
         # Stamina
         stamina, 
@@ -137,9 +140,7 @@ def main():
         
         "Speed", "Spd.Sprint", "Spd.Inst", 
         
-        "Range", "Rng.React", 
-        "Glove", 
-        "Arm", "Arm.Str", "Arm.Acc", 
+        "Defense", "def.Range", "def.reaction", "def.glove", "def.ArmStr", "def.ArmAcc", 
         
         "Max Stam", "Cur Stam", 
         

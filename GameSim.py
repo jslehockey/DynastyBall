@@ -141,11 +141,12 @@ class SimulationEngine:
                     "sprint_speed": int(row.get("Spd.Sprint", 0) or 0),
                     "instincts": int(row.get("Spd.Inst", 0) or 0)
                 },
-                "fielding": {
-                    "reaction": int(row.get("Rng.React", 0) or 0),
-                    "glove": int(row.get("Glove", 0) or 0),
-                    "arm_strength": int(row.get("Arm.Str", 0) or 0),
-                    "arm_accuracy": int(row.get("Arm.Acc", 0) or 0)
+               "defense": {
+                    "def.range": int(row.get("def.Range", row.get("Def.Range", 0)) or 0),
+                    "def.reaction": int(row.get("def.reaction", row.get("Def.React", 0)) or 0),
+                    "def.glove": int(row.get("def.glove", row.get("Def.Glove", 0)) or 0),
+                    "def.ArmStr": int(row.get("def.ArmStr", row.get("Def.ArmStr", 0)) or 0),
+                    "def.ArmAcc": int(row.get("def.ArmAcc", row.get("Def.ArmAcc", 0)) or 0)
                 },
                 "pitching": {
                     "arm_speed": int(row.get("Vel.ArmSpd", 0) or 0),
@@ -225,9 +226,11 @@ class SimulationEngine:
                 s["K"] += p_stats["K"]
                 s["BB"] += p_stats["BB"]
             
+            # Write back the drained stamina to the flat dictionary
             for flat_player in self.rosters[team_name]:
                 if str(flat_player["ID"]) == pid:
-                    flat_player["Cur Stam"] = obj_player.current_stamina
+                    max_stam = flat_player.get("Max Stam", 100)
+                    flat_player["Cur Stam"] = getattr(obj_player, 'current_stamina', max_stam)
                     break
 
     def recover_daily_stamina(self):
@@ -258,7 +261,7 @@ class SimulationEngine:
                 
             row.append(team.stats['batting']['R'])
             row.append(team.stats['batting']['H'])
-            row.append(team.stats['fielding']['E'])
+            row.append(team.stats['defense']['E'])
             left_rows.append(row)
             
         left_rows.append([]) 
@@ -321,8 +324,29 @@ class SimulationEngine:
         ws.append_rows(final_grid)
 
     def export_all(self):
-        # ... (Existing export_all code remains unchanged)
-        pass 
+        """Flattens the memory state and overwrites the Google Sheets with updated stamina levels."""
+        print("Exporting updated player data and stamina back to Google Sheets...")
+        
+        for team_name, roster in self.rosters.items():
+            ws = SHEET.worksheet(team_name)
+            
+            if not roster: 
+                continue
+                
+            # Extract the headers dynamically from the first player in the dictionary
+            headers = list(roster[0].keys())
+            grid = [headers]
+            
+            # Map every player back into a list format matching the headers
+            for player in roster:
+                row = [player.get(h, "") for h in headers]
+                grid.append(row)
+                
+            ws.clear()
+            ws.append_rows(grid)
+            print(f"  > Updated {team_name} fatigue levels.")
+            
+        print("Master Roster Export complete!")
 
 # TEST THE ENGINE: PLAY-BY-PLAY BROADCAST
 def print_box_score(game):
@@ -348,7 +372,7 @@ def print_box_score(game):
             
         runs = str(team.stats['batting']['R']).rjust(2)
         hits = str(team.stats['batting']['H']).rjust(2)
-        errs = str(team.stats['fielding']['E']).rjust(2) 
+        errs = str(team.stats['defense']['E']).rjust(2) 
         
         left_lines.append(f"{name}{linescore} | {runs}  {hits}  {errs}")
         

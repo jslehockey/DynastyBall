@@ -6,7 +6,6 @@ class HalfInning:
     Manages the game state for a single half-inning. 
     Tracks bases, outs, runs, and routes the At-Bat outcomes.
     """
-    # 1. Update __init__ to accept game_instance
     def __init__(self, batting_team, fielding_team, league_env, inning_num, is_top, away_score, home_score, scoring_plays, game_instance=None):
         self.batting_team = batting_team
         self.fielding_team = fielding_team
@@ -16,7 +15,7 @@ class HalfInning:
         self.away_score = away_score
         self.home_score = home_score
         self.scoring_plays = scoring_plays 
-        self.game_instance = game_instance  # NEW
+        self.game_instance = game_instance 
         self.pitcher = fielding_team.pitcher
         self.defense = fielding_team.defense
         self.outs = 0
@@ -29,19 +28,15 @@ class HalfInning:
         frame = "Top" if self.is_top else "Bottom"
         print(f"\n--- {frame} {self.inning_num} | {self.batting_team.name} Batting ---")
         
-        # Local variable references for the nested dictionaries to keep the code clean
         t_bat = self.batting_team.stats["batting"]
         t_pit = self.fielding_team.stats["pitching"]
-        t_fld = self.fielding_team.stats["fielding"]
+        t_fld = self.fielding_team.stats["defense"]
         
         last_ab_was_hr = False
         
         while self.outs < 3:
-            
-            # ==========================================
             # PITCHING CHANGE LOGIC
-            # ==========================================
-            max_stam = self.pitcher.attributes['pitching']['stamina']
+            max_stam = self.pitcher.attributes.get('pitching', {}).get('stamina', 100)
             curr_stam = getattr(self.pitcher, 'current_stamina', max_stam)
             stam_pct = (curr_stam / max_stam) * 100
             
@@ -58,12 +53,9 @@ class HalfInning:
                     if stam_pct <= 0.0 and self.outs == 0: 
                         print(f"  [ADRENALINE] {self.pitcher.name}'s tank is empty, but he's rolling. Manager lets him ride!")
                 else:
-                    if self.inning_num <= 7:
-                        role = "Middle Reliever"
-                    elif self.inning_num == 8:
-                        role = "Setup Man"
-                    else:
-                        role = "Closer"
+                    if self.inning_num <= 7: role = "Middle Reliever"
+                    elif self.inning_num == 8: role = "Setup Man"
+                    else: role = "Closer"
                     
                     if uses_adrenaline and danger_zone:
                         trigger_reason = "a runner reached scoring position" if runner_in_scoring_pos else "giving up a home run"
@@ -72,15 +64,11 @@ class HalfInning:
                     self.call_to_bullpen(failsafe_role=role)
                     last_ab_was_hr = False 
 
-            # ==========================================
             # AT-BAT LOGIC
-            # ==========================================
             batter = self.batting_team.get_next_batter()
             print(f"\nUp to bat: {batter.name} | Outs: {self.outs} | Bases: {self.get_bases_string()}")
             
             runs_at_start_of_ab = self.runs 
-            
-            # Player stat references for the current matchup
             p_bat = batter.stats["batting"]
             p_pit = self.pitcher.stats["pitching"]
             
@@ -88,16 +76,13 @@ class HalfInning:
             outcome = sim.simulate_at_bat(defense=self.defense)
             event = outcome.get("event")
 
-            # ==========================================
             # PITCH COUNT TRACKER
-            # ==========================================
-            if "pitches" in outcome:
-                ab_pitches = outcome["pitches"]
+            if "pitches" in outcome: ab_pitches = outcome["pitches"]
             else:
                 if event == "Strikeout": ab_pitches = random.randint(3, 7)
                 elif event == "Walk": ab_pitches = random.randint(4, 8)
                 elif event == "Hit By Pitch": ab_pitches = random.randint(1, 4)
-                else: ab_pitches = random.randint(1, 6) # Ball in play
+                else: ab_pitches = random.randint(1, 6)
                 
             t_pit["Pitches"] += ab_pitches
             p_pit["Pitches"] += ab_pitches
@@ -109,18 +94,14 @@ class HalfInning:
                 for log_entry in outcome["log"]:
                     print(f"    {log_entry}")
             
-            # ==========================================
             # INNING ENDING STEAL LOGIC
-            # ==========================================
             if event == "Inning Ending Steal":
                 self.batting_team.batter_index -= 1
                 if self.batting_team.batter_index < 0:
                     self.batting_team.batter_index = len(self.batting_team.lineup) - 1
                 break 
 
-            # ==========================================
             # STAT DISTRIBUTION & RBI LOGIC
-            # ==========================================
             t_bat["PA"] += 1
             p_bat["PA"] += 1
             
@@ -147,7 +128,6 @@ class HalfInning:
                 
                 if target == "Infield Grounder":
                     self.process_infield_grounder(batter, outcome)
-                    
                     if outcome.get("error"):
                         t_fld["E"] += 1
                         self.errors_in_inning += 1
@@ -155,11 +135,9 @@ class HalfInning:
                         t_bat["1B"] += 1; p_bat["1B"] += 1
                         t_bat["H"] += 1; p_bat["H"] += 1
                         t_pit["H"] += 1; p_pit["H"] += 1
-                
                 else:
                     if not outcome["safe"]:
                         self.record_out()
-
                         if outcome.get("fielder_state") == "caught_in_air":
                             catcher_pos = outcome["hit_data"]["target_position"]
                             self.record_fielding_stat(catcher_pos, "PO")
@@ -174,7 +152,6 @@ class HalfInning:
 
                                 if self.bases[3] and distance >= 240:
                                     runner = self.bases[3]
-                                    # UPDATE 1: Check for 'sprint_speed' from baserunning dict
                                     r_speed = runner.attributes.get('baserunning', {}).get('sprint_speed', 75)
                                     print(f"  > {runner.name} tags up from third!")
                                     
@@ -183,7 +160,6 @@ class HalfInning:
                                         print(f"  > {tag['reason']}")
                                         self.score_run(runner)
                                         self.bases[3] = None
-                                        
                                         p_bat["RBI"] += 1
                                         t_bat["AB"] -= 1; p_bat["AB"] -= 1
                                     else:
@@ -195,7 +171,6 @@ class HalfInning:
                                     valid_locs = ["Dead Center", "Right Center Gap", "Dead Right Field", "Right Field Line"]
                                     if location in valid_locs and distance >= 280:
                                         runner = self.bases[2]
-                                        # UPDATE 2: Check for 'sprint_speed' from baserunning dict
                                         r_speed = runner.attributes.get('baserunning', {}).get('sprint_speed', 75)
                                         print(f"  > {runner.name} tags up and heads for third!")
                                         
@@ -233,9 +208,7 @@ class HalfInning:
                             hit_location = outcome.get("location", "Center")
                             self.process_hit_advancement(batter, hit_type, hit_location)
             
-            # ==========================================
             # THE RBI CALCULATOR
-            # ==========================================
             runs_scored_on_play = self.runs - runs_at_start_of_ab
             
             if runs_scored_on_play > 0:
@@ -250,24 +223,16 @@ class HalfInning:
                 location = outcome.get("location", "the field")
                 rbi_text = f", driving in {rbi_awarded} run(s)!" if rbi_awarded > 0 else " (Runs scored on error!)"
                 
-                if hit_type == "HR":
-                    desc = f"{batter.name} hits a Home Run to {location}{rbi_text}"
-                else:
-                    desc = f"{batter.name} hits a {hit_type} to {location}{rbi_text}"
+                if hit_type == "HR": desc = f"{batter.name} hits a Home Run to {location}{rbi_text}"
+                else: desc = f"{batter.name} hits a {hit_type} to {location}{rbi_text}"
                 
                 play_record = {
-                    "inning": self.inning_num,
-                    "half": "Top" if self.is_top else "Bottom",
-                    "batter": batter.name,
-                    "event": hit_type,
-                    "rbi": rbi_awarded,
-                    "description": desc
+                    "inning": self.inning_num, "half": "Top" if self.is_top else "Bottom",
+                    "batter": batter.name, "event": hit_type, "rbi": rbi_awarded, "description": desc
                 }
                 self.scoring_plays.append(play_record)
             
-            # ==========================================
             # WALK-OFF CHECK
-            # ==========================================
             if not self.is_top and self.inning_num >= 9:
                 if (self.home_score + self.runs) > self.away_score:
                     print(f"\n  *** WALK-OFF WINNER! {self.batting_team.name} WIN! ***")
@@ -278,15 +243,12 @@ class HalfInning:
         self.batting_team.linescore.append(self.runs)
         print(f"\n--- {frame} {self.inning_num} OVER | Runs Scored: {self.runs} ---")
 
-        # ==========================================
         # HALF-INNING STAMINA DEDUCTION (BATTERS ONLY)
-        # ==========================================
         for team in [self.batting_team, self.fielding_team]:
             for player in team.lineup:  
-                if hasattr(player, 'current_stamina'):
-                    player.current_stamina = max(0, player.current_stamina - 1)
-                elif 'current_stamina' in player.attributes.get('pitching', {}):
-                    player.attributes['pitching']['current_stamina'] = max(0, player.attributes['pitching']['current_stamina'] - 1)
+                max_stam = player.attributes.get('batting', {}).get('stamina', 100)
+                curr_stam = getattr(player, 'current_stamina', max_stam)
+                player.current_stamina = max(0, curr_stam - 1)
     
     def record_out(self):
         self.outs += 1
@@ -296,7 +258,6 @@ class HalfInning:
     def score_run(self, player):
         self.runs += 1
         player.stats["batting"]["R"] += 1 
-        
         self.pitcher.stats["pitching"]["R"] += 1 
         self.fielding_team.stats["pitching"]["R"] += 1
         
@@ -305,13 +266,10 @@ class HalfInning:
             self.fielding_team.stats["pitching"]["ER"] += 1
         
         print(f"  *** {player.name} SCORES! ***")
-
         if self.game_instance:
             self.game_instance.evaluate_run_scored(self)
 
-    # ==========================================
     # BASERUNNING HELPERS
-    # ==========================================
     def get_bases_string(self):
         b1 = "1B" if self.bases[1] else "--"
         b2 = "2B" if self.bases[2] else "--"
@@ -335,9 +293,18 @@ class HalfInning:
         self.score_run(batter)
 
     def process_hit_advancement(self, batter, hit_type, hit_location="Center"):
-        # We assume an average outfield arm of 75 for standard advancement checks
-        fielder_arm_str = 75 
-        fielder_arm_acc = 75
+        # DYNAMIC OUTFIELDER ARM EXTRACTION
+        if hit_location in ["Left Field Line", "Dead Left Field", "Left Center Gap"]: pos = "LF"
+        elif hit_location == "Dead Center": pos = "CF"
+        else: pos = "RF"
+        
+        fielder = self.defense.get(pos)
+        if fielder and hasattr(fielder, 'defense'):
+            f_def = fielder.defense
+            fielder_arm_str = f_def.get('arm_str', 75)
+            fielder_arm_acc = f_def.get('arm_acc', 75)
+        else:
+            fielder_arm_str, fielder_arm_acc = 75, 75
         
         if hit_type == "3B":
             if self.bases[3]: self.score_run(self.bases[3])
@@ -351,7 +318,6 @@ class HalfInning:
             
             if self.bases[1]:
                 runner = self.bases[1]
-                # UPDATE 3: Check for 'sprint_speed'
                 runner_sprint = runner.attributes.get('baserunning', {}).get('sprint_speed', 75)
                 
                 print(f"  > {runner.name} rounds third, heading for home!")
@@ -362,7 +328,7 @@ class HalfInning:
                     print(f"  > {outcome['reason']}")
                     self.score_run(runner)
                     if outcome.get("error"):
-                        self.fielding_team.stats["fielding"]["E"] += 1
+                        self.fielding_team.stats["defense"]["E"] += 1
                         self.errors_in_inning += 1
                 else:
                     print(f"  > {outcome['reason']}")
@@ -377,7 +343,6 @@ class HalfInning:
             
             if self.bases[2]:
                 runner = self.bases[2]
-                # UPDATE 4: Check for 'sprint_speed'
                 runner_sprint = runner.attributes.get('baserunning', {}).get('sprint_speed', 75)
                 
                 print(f"  > {runner.name} challenges the arm, heading for home!")
@@ -388,7 +353,7 @@ class HalfInning:
                     print(f"  > {outcome['reason']}")
                     self.score_run(runner)
                     if outcome.get("error"):
-                        self.fielding_team.stats["fielding"]["E"] += 1
+                        self.fielding_team.stats["defense"]["E"] += 1
                         self.errors_in_inning += 1
                     self.bases[3] = None
                 else:
@@ -439,9 +404,7 @@ class HalfInning:
 
     def _select_reliever(self):
         bullpen = self.fielding_team.bullpen
-        
-        if not bullpen:
-            return None
+        if not bullpen: return None
 
         fielding_runs = self.fielding_team.stats["batting"]["R"]
         batting_runs = self.batting_team.stats["batting"]["R"]
@@ -449,14 +412,12 @@ class HalfInning:
         inning = self.inning_num
 
         for p in bullpen:
-            if hasattr(p, 'current_stamina'):
-                p._temp_stam = p.current_stamina
+            if hasattr(p, 'current_stamina'): p._temp_stam = p.current_stamina
             else:
                 max_stam = p.attributes.get('pitching', {}).get('stamina', 100)
                 p._temp_stam = p.attributes.get('pitching', {}).get('current_stamina', max_stam)
 
         starter_roles = ['SP1', 'SP2', 'SP3', 'SP4', 'SP5']
-        
         available_relievers = [
             p for p in bullpen 
             if p.attributes.get('role', 'MR') not in starter_roles 
@@ -472,30 +433,19 @@ class HalfInning:
             bullpen.remove(chosen)
             return chosen
 
-        priority_list = []
-
-        if inning >= 9 and 1 <= score_diff <= 3:
-            priority_list = ['CL', 'SU', 'LR', 'MR']
-            
-        elif inning in [7, 8] and 0 <= score_diff <= 3:
-            priority_list = ['SU', 'LR', 'CL', 'MR']
-            
-        elif inning >= 6 and -2 <= score_diff <= 4:
-            priority_list = ['LR', 'SU', 'MR', 'CL']
-            
-        else:
-            priority_list = ['MR', 'LR', 'SU', 'CL']
+        if inning >= 9 and 1 <= score_diff <= 3: priority_list = ['CL', 'SU', 'LR', 'MR']
+        elif inning in [7, 8] and 0 <= score_diff <= 3: priority_list = ['SU', 'LR', 'CL', 'MR']
+        elif inning >= 6 and -2 <= score_diff <= 4: priority_list = ['LR', 'SU', 'MR', 'CL']
+        else: priority_list = ['MR', 'LR', 'SU', 'CL']
 
         chosen_pitcher = None
-        
         for target_role in priority_list:
             candidates = [p for p in available_relievers if p.attributes.get('role', 'MR') == target_role]
             if candidates:
                 chosen_pitcher = candidates[0] 
                 break
                 
-        if not chosen_pitcher:
-            chosen_pitcher = available_relievers[0]
+        if not chosen_pitcher: chosen_pitcher = available_relievers[0]
 
         bullpen.remove(chosen_pitcher)
         return chosen_pitcher
@@ -540,8 +490,7 @@ class HalfInning:
             self.record_fielding_stat(target_base, "PO")
             
             if target_base == 1:
-                if runner_held:
-                    pass 
+                if runner_held: pass 
                 else:
                     if self.bases[3]: self.score_run(self.bases[3])
                     if self.bases[2]: self.bases[3] = self.bases[2]
@@ -571,11 +520,11 @@ class HalfInning:
 
         fielder = self.defense.get(position)
         if fielder:
-            fielder.stats["fielding"][stat_type] += 1
-            fielder.stats["fielding"]["TC"] += 1
+            fielder.stats["defense"][stat_type] += 1
+            fielder.stats["defense"]["TC"] += 1
             
-        self.fielding_team.stats["fielding"][stat_type] += 1
-        self.fielding_team.stats["fielding"]["TC"] += 1
+        self.fielding_team.stats["defense"][stat_type] += 1
+        self.fielding_team.stats["defense"]["TC"] += 1
 
 class FullGame:
     """Manages the 9-inning game flow between two Team objects."""
@@ -621,19 +570,16 @@ class FullGame:
     def award_pitching_decisions(self):
         if self.away.stats["batting"]["R"] > self.home.stats["batting"]["R"]:
             winner_team, loser_team = self.away, self.home
-            winning_pitcher = self.away_por
-            losing_pitcher = self.home_por
+            winning_pitcher, losing_pitcher = self.away_por, self.home_por
             winner_starter = self.away_starter 
         else:
             winner_team, loser_team = self.home, self.away
-            winning_pitcher = self.home_por
-            losing_pitcher = self.away_por
+            winning_pitcher, losing_pitcher = self.home_por, self.away_por
             winner_starter = self.home_starter
 
         if winning_pitcher == winner_starter and winning_pitcher.stats["pitching"]["Outs"] < 15:
             relievers = [p for p in winner_team.used_pitchers + [winner_team.pitcher] if p != winner_starter]
-            if relievers:
-                winning_pitcher = max(relievers, key=lambda p: p.stats["pitching"]["Outs"])
+            if relievers: winning_pitcher = max(relievers, key=lambda p: p.stats["pitching"]["Outs"])
 
         winning_pitcher.stats["pitching"]["W"] += 1
         losing_pitcher.stats["pitching"]["L"] += 1
@@ -687,7 +633,7 @@ class FullGame:
         
         for team, opponent in [(self.away, self.home), (self.home, self.away)]:
             if opponent.stats["batting"]["H"] == 0:
-                if opponent.stats["batting"]["BB"] == 0 and opponent.stats["batting"]["HBP"] == 0 and team.stats["fielding"]["E"] == 0:
+                if opponent.stats["batting"]["BB"] == 0 and opponent.stats["batting"]["HBP"] == 0 and team.stats["defense"]["E"] == 0:
                     milestones.append(f"PERFECT GAME: {team.name} pitching staff!")
                 else:
                     milestones.append(f"NO-HITTER: {team.name} pitching staff!")
@@ -699,14 +645,8 @@ class FullGame:
                 
                 if stats["1B"] >= 1 and stats["2B"] >= 1 and stats["3B"] >= 1 and stats["HR"] >= 1:
                     milestones.append(f"CYCLE: {player.name} hits for the cycle!")
-                
-                if stats["HR"] >= 4:
-                    milestones.append(f"4-HR GAME: {player.name} hits {stats['HR']} home runs!")
-                    
-                if stats["RBI"] >= 8:
-                    milestones.append(f"8-RBI GAME: {player.name} drives in {stats['RBI']} runs!")
-                    
-                if stats["H"] >= 5:
-                    milestones.append(f"5-HIT GAME: {player.name} collects {stats['H']} hits!")
+                if stats["HR"] >= 4: milestones.append(f"4-HR GAME: {player.name} hits {stats['HR']} home runs!")
+                if stats["RBI"] >= 8: milestones.append(f"8-RBI GAME: {player.name} drives in {stats['RBI']} runs!")
+                if stats["H"] >= 5: milestones.append(f"5-HIT GAME: {player.name} collects {stats['H']} hits!")
 
         return milestones

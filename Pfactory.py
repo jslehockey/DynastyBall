@@ -20,68 +20,62 @@ class PlayerFactory:
             "Ruth", "Mantle", "Mays", "Aaron", "Gehrig", "Ryan", "Ripken", "Gwynn", "Griffey", "Bonds"
         ]
 
-        # ==========================================
         # HITTER ARCHETYPES (13 Sub-Stats)
-        # ==========================================
-        # ==========================================
-        # HITTER ARCHETYPES (Reduced by ~5%)
-        # ==========================================
+
         self.positional_archetypes = {
             "C": {
-                "Bench":  {"timing": 67, "barreling": 76, "strength": 84, "bat_speed": 76, "elevation": 86, "eye": 67, "restraint": 70, "sprint_speed": 38, "instincts": 38, "reaction": 57, "glove": 80, "arm_strength": 87, "arm_accuracy": 84},
-                "Mauer":  {"timing": 86, "barreling": 82, "strength": 67, "bat_speed": 67, "elevation": 61, "eye": 81, "restraint": 75, "sprint_speed": 52, "instincts": 52, "reaction": 52, "glove": 76, "arm_strength": 72, "arm_accuracy": 76},
-                "Molina": {"timing": 67, "barreling": 70, "strength": 62, "bat_speed": 57, "elevation": 52, "eye": 71, "restraint": 62, "sprint_speed": 33, "instincts": 33, "reaction": 81, "glove": 87, "arm_strength": 86, "arm_accuracy": 89}
+                "Bench":  {"timing": 67, "barreling": 76, "strength": 84, "bat_speed": 76, "elevation": 86, "eye": 67, "restraint": 70, "sprint_speed": 38, "instincts": 38, "def.reaction": 57, "def.glove": 80, "def.ArmStr": 87, "def.ArmAcc": 84},
+                "Mauer":  {"timing": 86, "barreling": 82, "strength": 67, "bat_speed": 67, "elevation": 61, "eye": 81, "restraint": 75, "sprint_speed": 52, "instincts": 52, "def.reaction": 52, "def.glove": 76, "def.ArmStr": 72, "def.ArmAcc": 76},
+                "Molina": {"timing": 67, "barreling": 70, "strength": 62, "bat_speed": 57, "elevation": 52, "eye": 71, "restraint": 62, "sprint_speed": 33, "instincts": 33, "def.reaction": 81, "def.glove": 87, "def.ArmStr": 86, "def.ArmAcc": 89}
             },
             "1B": {
-                "Gehrig": {"timing": 84, "barreling": 84, "strength": 86, "bat_speed": 82, "elevation": 84, "eye": 78, "restraint": 78, "sprint_speed": 48, "instincts": 48, "reaction": 57, "glove": 71, "arm_strength": 62, "arm_accuracy": 62},
-                "Pujols": {"timing": 78, "barreling": 82, "strength": 89, "bat_speed": 84, "elevation": 84, "eye": 82, "restraint": 78, "sprint_speed": 29, "instincts": 29, "reaction": 67, "glove": 80, "arm_strength": 67, "arm_accuracy": 67},
-                "Keith":  {"timing": 78, "barreling": 78, "strength": 62, "bat_speed": 67, "elevation": 57, "eye": 78, "restraint": 74, "sprint_speed": 43, "instincts": 43, "reaction": 81, "glove": 87, "arm_strength": 71, "arm_accuracy": 71}
+                "Gehrig": {"timing": 84, "barreling": 84, "strength": 86, "bat_speed": 82, "elevation": 84, "eye": 78, "restraint": 78, "sprint_speed": 48, "instincts": 48, "def.reaction": 57, "def.glove": 71, "def.ArmStr": 62, "def.ArmAcc": 62},
+                "Pujols": {"timing": 78, "barreling": 82, "strength": 89, "bat_speed": 84, "elevation": 84, "eye": 82, "restraint": 78, "sprint_speed": 29, "instincts": 29, "def.reaction": 67, "def.glove": 80, "def.ArmStr": 67, "def.ArmAcc": 67},
+                "Keith":  {"timing": 78, "barreling": 78, "strength": 62, "bat_speed": 67, "elevation": 57, "eye": 78, "restraint": 74, "sprint_speed": 43, "instincts": 43, "def.reaction": 81, "def.glove": 87, "def.ArmStr": 71, "def.ArmAcc": 71}
             },
             "2B": {
-                "Morgan": {"timing": 76, "barreling": 76, "strength": 72, "bat_speed": 80, "elevation": 70, "eye": 87, "restraint": 84, "sprint_speed": 81, "instincts": 81, "reaction": 62, "glove": 78, "arm_strength": 67, "arm_accuracy": 67},
-                "Alomar": {"timing": 81, "barreling": 81, "strength": 65, "bat_speed": 71, "elevation": 58, "eye": 76, "restraint": 72, "sprint_speed": 78, "instincts": 78, "reaction": 84, "glove": 84, "arm_strength": 74, "arm_accuracy": 74},
-                "Kent":   {"timing": 74, "barreling": 74, "strength": 84, "bat_speed": 78, "elevation": 81, "eye": 68, "restraint": 68, "sprint_speed": 43, "instincts": 43, "reaction": 81, "glove": 71, "arm_strength": 71, "arm_accuracy": 71}
+                "Morgan": {"timing": 76, "barreling": 76, "strength": 72, "bat_speed": 80, "elevation": 70, "eye": 87, "restraint": 84, "sprint_speed": 81, "instincts": 81, "def.reaction": 62, "def.glove": 78, "def.ArmStr": 67, "def.ArmAcc": 67},
+                "Alomar": {"timing": 81, "barreling": 81, "strength": 65, "bat_speed": 71, "elevation": 58, "eye": 76, "restraint": 72, "sprint_speed": 78, "instincts": 78, "def.reaction": 84, "def.glove": 84, "def.ArmStr": 74, "def.ArmAcc": 74},
+                "Kent":   {"timing": 74, "barreling": 74, "strength": 84, "bat_speed": 78, "elevation": 81, "eye": 68, "restraint": 68, "sprint_speed": 43, "instincts": 43, "def.reaction": 81, "def.glove": 71, "def.ArmStr": 71, "def.ArmAcc": 71}
             },
             "3B": {
-                "Schmidt":{"timing": 68, "barreling": 76, "strength": 89, "bat_speed": 82, "elevation": 86, "eye": 84, "restraint": 78, "sprint_speed": 52, "instincts": 52, "reaction": 90, "glove": 84, "arm_strength": 87, "arm_accuracy": 80},
-                "Boggs":  {"timing": 89, "barreling": 86, "strength": 57, "bat_speed": 62, "elevation": 52, "eye": 89, "restraint": 86, "sprint_speed": 43, "instincts": 43, "reaction": 90, "glove": 76, "arm_strength": 71, "arm_accuracy": 71},
-                "Brett":  {"timing": 84, "barreling": 84, "strength": 76, "bat_speed": 78, "elevation": 68, "eye": 76, "restraint": 72, "sprint_speed": 62, "instincts": 62, "reaction": 81, "glove": 74, "arm_strength": 76, "arm_accuracy": 76}
+                "Schmidt":{"timing": 68, "barreling": 76, "strength": 89, "bat_speed": 82, "elevation": 86, "eye": 84, "restraint": 78, "sprint_speed": 52, "instincts": 52, "def.reaction": 90, "def.glove": 84, "def.ArmStr": 87, "def.ArmAcc": 80},
+                "Boggs":  {"timing": 89, "barreling": 86, "strength": 57, "bat_speed": 62, "elevation": 52, "eye": 89, "restraint": 86, "sprint_speed": 43, "instincts": 43, "def.reaction": 90, "def.glove": 76, "def.ArmStr": 71, "def.ArmAcc": 71},
+                "Brett":  {"timing": 84, "barreling": 84, "strength": 76, "bat_speed": 78, "elevation": 68, "eye": 76, "restraint": 72, "sprint_speed": 62, "instincts": 62, "def.reaction": 81, "def.glove": 74, "def.ArmStr": 76, "def.ArmAcc": 76}
             },
             "SS": {
-                "Ozzie":  {"timing": 70, "barreling": 67, "strength": 38, "bat_speed": 48, "elevation": 29, "eye": 76, "restraint": 72, "sprint_speed": 82, "instincts": 82, "reaction": 94, "glove": 89, "arm_strength": 82, "arm_accuracy": 82},
-                "Ripken": {"timing": 76, "barreling": 76, "strength": 78, "bat_speed": 74, "elevation": 76, "eye": 74, "restraint": 68, "sprint_speed": 43, "instincts": 43, "reaction": 90, "glove": 82, "arm_strength": 86, "arm_accuracy": 82},
-                "Jeter":  {"timing": 82, "barreling": 82, "strength": 67, "bat_speed": 71, "elevation": 56, "eye": 76, "restraint": 72, "sprint_speed": 71, "instincts": 71, "reaction": 58, "glove": 74, "arm_strength": 74, "arm_accuracy": 74}
+                "Ozzie":  {"timing": 70, "barreling": 67, "strength": 38, "bat_speed": 48, "elevation": 29, "eye": 76, "restraint": 72, "sprint_speed": 82, "instincts": 82, "def.reaction": 94, "def.glove": 89, "def.ArmStr": 82, "def.ArmAcc": 82},
+                "Ripken": {"timing": 76, "barreling": 76, "strength": 78, "bat_speed": 74, "elevation": 76, "eye": 74, "restraint": 68, "sprint_speed": 43, "instincts": 43, "def.reaction": 90, "def.glove": 82, "def.ArmStr": 86, "def.ArmAcc": 82},
+                "Jeter":  {"timing": 82, "barreling": 82, "strength": 67, "bat_speed": 71, "elevation": 56, "eye": 76, "restraint": 72, "sprint_speed": 71, "instincts": 71, "def.reaction": 58, "def.glove": 74, "def.ArmStr": 74, "def.ArmAcc": 74}
             },
             "LF": {
-                "Williams":{"timing": 89, "barreling": 89, "strength": 84, "bat_speed": 87, "elevation": 80, "eye": 91, "restraint": 87, "sprint_speed": 38, "instincts": 38, "reaction": 57, "glove": 57, "arm_strength": 57, "arm_accuracy": 57},
-                "Bonds":  {"timing": 80, "barreling": 80, "strength": 89, "bat_speed": 89, "elevation": 84, "eye": 93, "restraint": 87, "sprint_speed": 71, "instincts": 71, "reaction": 62, "glove": 74, "arm_strength": 68, "arm_accuracy": 68},
-                "Rickey": {"timing": 76, "barreling": 76, "strength": 62, "bat_speed": 71, "elevation": 52, "eye": 87, "restraint": 84, "sprint_speed": 90, "instincts": 90, "reaction": 62, "glove": 71, "arm_strength": 62, "arm_accuracy": 62}
+                "Williams":{"timing": 89, "barreling": 89, "strength": 84, "bat_speed": 87, "elevation": 80, "eye": 91, "restraint": 87, "sprint_speed": 38, "instincts": 38, "def.reaction": 57, "def.glove": 57, "def.ArmStr": 57, "def.ArmAcc": 57},
+                "Bonds":  {"timing": 80, "barreling": 80, "strength": 89, "bat_speed": 89, "elevation": 84, "eye": 93, "restraint": 87, "sprint_speed": 71, "instincts": 71, "def.reaction": 62, "def.glove": 74, "def.ArmStr": 68, "def.ArmAcc": 68},
+                "Rickey": {"timing": 76, "barreling": 76, "strength": 62, "bat_speed": 71, "elevation": 52, "eye": 87, "restraint": 84, "sprint_speed": 90, "instincts": 90, "def.reaction": 62, "def.glove": 71, "def.ArmStr": 62, "def.ArmAcc": 62}
             },
             "CF": {
-                "Mays":   {"timing": 78, "barreling": 78, "strength": 84, "bat_speed": 84, "elevation": 78, "eye": 76, "restraint": 72, "sprint_speed": 82, "instincts": 82, "reaction": 89, "glove": 86, "arm_strength": 84, "arm_accuracy": 84},
-                "Griffey":{"timing": 76, "barreling": 76, "strength": 84, "bat_speed": 87, "elevation": 80, "eye": 72, "restraint": 70, "sprint_speed": 78, "instincts": 78, "reaction": 89, "glove": 84, "arm_strength": 78, "arm_accuracy": 78},
-                "Lofton": {"timing": 80, "barreling": 80, "strength": 52, "bat_speed": 62, "elevation": 43, "eye": 78, "restraint": 74, "sprint_speed": 87, "instincts": 87, "reaction": 87, "glove": 81, "arm_strength": 62, "arm_accuracy": 62}
+                "Mays":   {"timing": 78, "barreling": 78, "strength": 84, "bat_speed": 84, "elevation": 78, "eye": 76, "restraint": 72, "sprint_speed": 82, "instincts": 82, "def.reaction": 89, "def.glove": 86, "def.ArmStr": 84, "def.ArmAcc": 84},
+                "Griffey":{"timing": 76, "barreling": 76, "strength": 84, "bat_speed": 87, "elevation": 80, "eye": 72, "restraint": 70, "sprint_speed": 78, "instincts": 78, "def.reaction": 89, "def.glove": 84, "def.ArmStr": 78, "def.ArmAcc": 78},
+                "Lofton": {"timing": 80, "barreling": 80, "strength": 52, "bat_speed": 62, "elevation": 43, "eye": 78, "restraint": 74, "sprint_speed": 87, "instincts": 87, "def.reaction": 87, "def.glove": 81, "def.ArmStr": 62, "def.ArmAcc": 62}
             },
             "RF": {
-                "Ruth":   {"timing": 76, "barreling": 80, "strength": 94, "bat_speed": 87, "elevation": 89, "eye": 86, "restraint": 82, "sprint_speed": 33, "instincts": 33, "reaction": 52, "glove": 52, "arm_strength": 76, "arm_accuracy": 67},
-                "Clemente":{"timing": 84, "barreling": 84, "strength": 68, "bat_speed": 74, "elevation": 63, "eye": 65, "restraint": 59, "sprint_speed": 67, "instincts": 67, "reaction": 90, "glove": 84, "arm_strength": 93, "arm_accuracy": 87},
-                "Gwynn":  {"timing": 91, "barreling": 89, "strength": 48, "bat_speed": 57, "elevation": 38, "eye": 86, "restraint": 82, "sprint_speed": 67, "instincts": 67, "reaction": 57, "glove": 74, "arm_strength": 62, "arm_accuracy": 62}
+                "Ruth":   {"timing": 76, "barreling": 80, "strength": 94, "bat_speed": 87, "elevation": 89, "eye": 86, "restraint": 82, "sprint_speed": 33, "instincts": 33, "def.reaction": 52, "def.glove": 52, "def.ArmStr": 76, "def.ArmAcc": 67},
+                "Clemente":{"timing": 84, "barreling": 84, "strength": 68, "bat_speed": 74, "elevation": 63, "eye": 65, "restraint": 59, "sprint_speed": 67, "instincts": 67, "def.reaction": 90, "def.glove": 84, "def.ArmStr": 93, "def.ArmAcc": 87},
+                "Gwynn":  {"timing": 91, "barreling": 89, "strength": 48, "bat_speed": 57, "elevation": 38, "eye": 86, "restraint": 82, "sprint_speed": 67, "instincts": 67, "def.reaction": 57, "def.glove": 74, "def.ArmStr": 62, "def.ArmAcc": 62}
             },
             "DH": {
-                "Edgar":  {"timing": 84, "barreling": 84, "strength": 78, "bat_speed": 82, "elevation": 74, "eye": 86, "restraint": 82, "sprint_speed": 33, "instincts": 33, "reaction": 43, "glove": 48, "arm_strength": 48, "arm_accuracy": 48},
-                "Ortiz":  {"timing": 76, "barreling": 76, "strength": 87, "bat_speed": 86, "elevation": 84, "eye": 82, "restraint": 80, "sprint_speed": 29, "instincts": 29, "reaction": 38, "glove": 43, "arm_strength": 43, "arm_accuracy": 43}
+                "Edgar":  {"timing": 84, "barreling": 84, "strength": 78, "bat_speed": 82, "elevation": 74, "eye": 86, "restraint": 82, "sprint_speed": 33, "instincts": 33, "def.reaction": 43, "def.glove": 48, "def.ArmStr": 48, "def.ArmAcc": 48},
+                "Ortiz":  {"timing": 76, "barreling": 76, "strength": 87, "bat_speed": 86, "elevation": 84, "eye": 82, "restraint": 80, "sprint_speed": 29, "instincts": 29, "def.reaction": 38, "def.glove": 43, "def.ArmStr": 43, "def.ArmAcc": 43}
             }
         }
 
         self.general_archetypes = {
-            "Dunn":   {"timing": 48, "barreling": 67, "strength": 93, "bat_speed": 76, "elevation": 93, "eye": 87, "restraint": 80, "sprint_speed": 33, "instincts": 33, "reaction": 43, "glove": 43, "arm_strength": 48, "arm_accuracy": 48},
-            "Ichiro": {"timing": 89, "barreling": 86, "strength": 43, "bat_speed": 52, "elevation": 33, "eye": 76, "restraint": 67, "sprint_speed": 86, "instincts": 86, "reaction": 82, "glove": 84, "arm_strength": 87, "arm_accuracy": 84},
-            "Zobrist":{"timing": 74, "barreling": 74, "strength": 71, "bat_speed": 74, "elevation": 68, "eye": 78, "restraint": 74, "sprint_speed": 71, "instincts": 71, "reaction": 71, "glove": 74, "arm_strength": 71, "arm_accuracy": 71}
+            "Dunn":   {"timing": 48, "barreling": 67, "strength": 93, "bat_speed": 76, "elevation": 93, "eye": 87, "restraint": 80, "sprint_speed": 33, "instincts": 33, "def.reaction": 43, "def.glove": 43, "def.ArmStr": 48, "def.ArmAcc": 48},
+            "Ichiro": {"timing": 89, "barreling": 86, "strength": 43, "bat_speed": 52, "elevation": 33, "eye": 76, "restraint": 67, "sprint_speed": 86, "instincts": 86, "def.reaction": 82, "def.glove": 84, "def.ArmStr": 87, "def.ArmAcc": 84},
+            "Zobrist":{"timing": 74, "barreling": 74, "strength": 71, "bat_speed": 74, "elevation": 68, "eye": 78, "restraint": 74, "sprint_speed": 71, "instincts": 71, "def.reaction": 71, "def.glove": 74, "def.ArmStr": 71, "def.ArmAcc": 71}
         }
 
-        # ==========================================
         # PITCHER ARCHETYPES (Reduced by ~5%, EXCEPT STAMINA)
-        # ==========================================
         self.sp_archetypes = {
             "Ryan":      {"arm_speed": 93, "deception": 82, "accuracy": 48, "command": 67, "spin_rate": 81, "bite": 71, "stamina": 92},
             "Maddux":    {"arm_speed": 52, "deception": 71, "accuracy": 91, "command": 87, "spin_rate": 76, "bite": 87, "stamina": 88},
@@ -135,10 +129,20 @@ class PlayerFactory:
             val = int(random.gauss(effective_mean, 6))
             current_stats[stat] = max(50, min(99, val))
 
+        # Generate correlated Defensive Range based on Sprint Speed
+        sprint = current_stats.get("sprint_speed", 50)
+        
+        # Positional tweaks: CF/SS are natural fielders, 1B/DH/C are not
+        if target_pos in ["CF", "SS", "2B"]: range_modifier = random.randint(0, 4)
+        elif target_pos in ["1B", "C", "DH"]: range_modifier = random.randint(-5, -1)
+        else: range_modifier = random.randint(-2, 2)
+        
+        current_stats["def.range"] = max(40, min(99, int(random.gauss(sprint + range_modifier, 4))))
+
         hitter_stam = int(random.gauss(75, 7))
         hitter_stam = max(50, min(99, hitter_stam))
 
-        # Map the 13 raw generated stats into their appropriate buckets
+        # Map the raw generated stats into their appropriate buckets
         attributes = {
             "bats": random.choice(["R", "R", "L", "S"]),
             "throws": random.choice(["R", "R", "R", "L"]),
@@ -156,11 +160,12 @@ class PlayerFactory:
                 "sprint_speed": current_stats["sprint_speed"],
                 "instincts": current_stats["instincts"]
             },
-            "fielding": {
-                "reaction": current_stats["reaction"],
-                "glove": current_stats["glove"],
-                "arm_strength": current_stats["arm_strength"],
-                "arm_accuracy": current_stats["arm_accuracy"]
+            "defense": {
+                "def.range": current_stats["def.range"],
+                "def.reaction": current_stats["def.reaction"],
+                "def.glove": current_stats["def.glove"],
+                "def.ArmStr": current_stats["def.ArmStr"],
+                "def.ArmAcc": current_stats["def.ArmAcc"]
             },
             "development": {
                 "age": age,
@@ -209,14 +214,14 @@ class PlayerFactory:
         if role in ["MR", "LR"]: stamina = random.randint(40, 60)
         elif role in ["SU", "CL"]: stamina = random.randint(15, 30)
 
-        # Map the 6 raw generated stats into the pitching bucket
+        # Map the raw generated stats into the pitching bucket
         attributes = {
             "bats": random.choice(["R", "L"]), 
             "throws": random.choice(["R", "R", "R", "L"]),
             # Dummy hitting/fielding stats for pitchers
             "batting": {"timing": 15, "barreling": 15, "strength": 15, "bat_speed": 15, "elevation": 15, "eye": 15, "restraint": 15, "stamina": 100},
             "baserunning": {"sprint_speed": random.randint(10, 30), "instincts": 15},
-            "fielding": {"reaction": 50, "glove": 50, "arm_strength": 60, "arm_accuracy": 50},
+            "defense": {"def.range": 50, "def.reaction": 50, "def.glove": 50, "def.ArmStr": 60, "def.ArmAcc": 50},
             "pitching": {
                 "arm_speed": current_stats["arm_speed"],
                 "deception": current_stats["deception"],

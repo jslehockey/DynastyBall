@@ -1,73 +1,55 @@
 import random
 
-def calculate_steal_success(runner_speed, catcher_defense, target_base):
+def calculate_steal_success(r_sprint, r_instincts, c_arm_str, c_arm_acc, c_reaction, target_base):
     """
-    Determines the outcome of a stolen base attempt.
-    Returns True if safe, False if out.
+    Determines the outcome of a stolen base attempt using granular sub-stats.
     """
-    # 1. Establish the baseline success rate
+    # 1. Establish the baseline success rate (Modern MLB averages)
     if target_base == 2:
-        baseline_prob = 0.40  # 40% success for 2nd base at even stats
+        baseline_prob = 0.65  
     elif target_base == 3:
-        baseline_prob = 0.25  # 25% success for 3rd base at even stats
+        baseline_prob = 0.53  
     else:
-        # Failsafe if anything else is passed
         return False 
         
-    # 2. Calculate the stat differential
-    stat_diff = runner_speed - catcher_defense
+    # 2. Blend the sub-stats
+    runner_jump = (r_sprint * 0.7) + (r_instincts * 0.3)
+    catcher_pop = (c_arm_str * 0.5) + (c_reaction * 0.3) + (c_arm_acc * 0.2)
     
-    # 3. Apply the differential to the probability
-    # k = 0.015 means a 1.5% shift in probability per rating point difference
+    # 3. Calculate stat differential
+    stat_diff = runner_jump - catcher_pop
+    
     k = 0.015 
     adjusted_prob = baseline_prob + (stat_diff * k)
     
-    # 4. Inject RNG (Gaussian Noise) to simulate the "jump" or a bad throw
-    # Mean of 0, standard deviation of 0.05 (roughly a +/- 5% random swing)
     rng_factor = random.gauss(0, 0.05)
-    final_prob = adjusted_prob + rng_factor
+    final_prob = max(0.01, min(0.99, adjusted_prob + rng_factor))
     
-    # 5. Cap the probabilities so they never exceed 99% or drop below 1%
-    final_prob = max(0.01, min(0.99, final_prob))
-    
-    # 6. Roll the dice
-    roll = random.random()
-    
-    return roll < final_prob
+    return random.random() < final_prob
 
-def should_attempt_steal(runner_speed, target_base, manager_slider=3, speed_threshold=0):
+def should_attempt_steal(r_sprint, r_instincts, target_base, manager_slider=3, speed_threshold=0):
     """
-    Blends player instinct (speed curve) with managerial philosophy.
-    manager_slider: 1 (Very Conservative) to 5 (Very Aggressive). 3 is Neutral.
-    speed_threshold: If > 0, drastically reduces intent for slower players.
+    Blends player instinct (speed + instincts curve) with managerial philosophy.
     """
-    # ==========================================
-    # 1. PLAYER INSTINCT (The Default Engine)
-    # ==========================================
-    speed_factor = (runner_speed / 100.0) ** 4 
+    runner_jump = (r_sprint * 0.7) + (r_instincts * 0.3)
+    speed_factor = (runner_jump / 100.0) ** 4 
     
     if target_base == 2:
-        max_intent = 0.15  # Up to 15% chance to run PER PITCH
+        max_intent = 0.15 
     elif target_base == 3:
-        max_intent = 0.05  # Up to 5% chance to run PER PITCH
+        max_intent = 0.05 
     else:
         return False
         
     base_prob = max_intent * speed_factor
     
-    # ==========================================
-    # 2. MANAGERIAL GUARDRAILS
-    # ==========================================
-    # A. The Threshold Check
     threshold_modifier = 1.0
     if speed_threshold > 0:
-        if runner_speed >= speed_threshold:
-            threshold_modifier = 1.2  # Green light! Slight boost to instinct.
+        if runner_jump >= speed_threshold:
+            threshold_modifier = 1.2  
         else:
-            threshold_modifier = 0.1  # Red light! Manager holds them back (90% penalty).
+            threshold_modifier = 0.1  
 
-    # B. The Aggression Slider
-    # 3 is Neutral (1.0x), meaning the manager lets the player's instinct run the show.
     if manager_slider == 1: aggression_multiplier = 0.25
     elif manager_slider == 2: aggression_multiplier = 0.50
     elif manager_slider == 3: aggression_multiplier = 1.00
@@ -75,16 +57,9 @@ def should_attempt_steal(runner_speed, target_base, manager_slider=3, speed_thre
     elif manager_slider >= 5: aggression_multiplier = 2.00
     else: aggression_multiplier = 1.00
 
-    # ==========================================
-    # 3. FINAL EXECUTION
-    # ==========================================
     adjusted_prob = base_prob * threshold_modifier * aggression_multiplier
     
-    # Inject RNG to keep it unpredictable
     rng_factor = random.gauss(0, 0.005)
-    final_prob = adjusted_prob + rng_factor
-    
-    # Cap bounds to prevent weird math anomalies
-    final_prob = max(0.001, min(0.99, final_prob))
+    final_prob = max(0.001, min(0.99, adjusted_prob + rng_factor))
     
     return random.random() < final_prob
