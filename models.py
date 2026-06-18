@@ -4,7 +4,7 @@ class Player:
     """
     An expanded Player class driven by an attribute dictionary.
     Includes a structured Player ID, performance tracking, automated
-    Free Agent pruning, and dynamic Sub-Stat calculations.
+    Free Agent pruning, dynamic Sub-Stat calculations, and Form Momentum.
     """
     def __init__(self, player_id, name, attributes):
         self.player_id = str(player_id)  # e.g., "000100000001"
@@ -20,13 +20,28 @@ class Player:
         self.peak_age = dev_data.get('peak_age', 27)
         self.decline_rate = dev_data.get('decline_rate', 1.0)
         
-        # --- NEW: SYSTEM RETIREMENT METRICS ---
+        # SYSTEM RETIREMENT METRICS
         self.seasons_in_fa = 0
         self.is_retired = False
+
+        self.primary_pos = self.attributes.get('primary_pos', 'DH')
+        self.game_pos = self.attributes.get('game_pos', 'DH')
+        
+        # --- NEW: STREAKS & MOMENTUM MEMORY ---
+        self.current_hit_streak = int(self.attributes.get('current_hit_streak', 0))
+        self.longest_hit_streak = int(self.attributes.get('longest_hit_streak', 0))
+        
+        self.current_obp_streak = int(self.attributes.get('current_obp_streak', 0))
+        self.longest_obp_streak = int(self.attributes.get('longest_obp_streak', 0))
+        
+        self.current_scoreless_outs = int(self.attributes.get('current_scoreless_outs', 0))
+        self.longest_scoreless_outs = int(self.attributes.get('longest_scoreless_outs', 0))
+        
+        self.recent_form_str = str(self.attributes.get('recent_form', ""))
         
         # RPG Elements
-        self.form = 0 
         self.traits = self.attributes.get('traits', [])
+        self.form = self.calculate_form() # Replaces the hardcoded 0 with a dynamic -3 to +3
 
         # GAME & SEASON STAT TRACKING
         self.stats = {
@@ -59,6 +74,80 @@ class Player:
         self.earned_runs = 0
         self.home_runs_allowed = 0
 
+    # --- NEW: MOMENTUM CALCULATOR WITH TRAITS ---
+    def calculate_form(self):
+        """
+        Parses the recent_form_str (e.g., "1-4, 2-5, 0-3" for hitters or "6.0-1, 7.0-0" for pitchers)
+        and returns a momentum modifier from -3 to +3.
+        """
+        if not self.recent_form_str or self.recent_form_str.strip() == "":
+            return 0
+            
+        games = [g.strip() for g in self.recent_form_str.split(',') if g.strip()]
+        if not games: return 0
+            
+        if self.primary_pos == "P":
+            # Pitcher format: "IP-ER" e.g., "6.0-2, 1.1-0"
+            total_outs = 0
+            total_er = 0
+            for g in games:
+                try:
+                    ip_str, er_str = g.split('-')
+                    parts = ip_str.split('.')
+                    outs = int(parts[0]) * 3
+                    if len(parts) > 1: outs += int(parts[1])
+                    total_outs += outs
+                    total_er += int(er_str)
+                except ValueError:
+                    continue
+            
+            if total_outs == 0: return 0
+            ip = total_outs / 3.0
+            era = (total_er * 9) / ip
+            
+            if era <= 1.00: form_val = 3
+            elif era <= 2.50: form_val = 2
+            elif era <= 3.50: form_val = 1
+            elif era >= 7.00: form_val = -3
+            elif era >= 5.50: form_val = -2
+            elif era >= 4.50: form_val = -1
+            else: form_val = 0
+            
+            # --- ICE IN THE VEINS TRAIT ---
+            if form_val < 0 and "Ice in the Veins" in self.traits:
+                form_val = max(form_val, -1)
+                
+            return form_val
+            
+        else:
+            # Hitter format: "H-AB" e.g., "1-4, 2-3"
+            total_h = 0
+            total_ab = 0
+            for g in games:
+                try:
+                    h_str, ab_str = g.split('-')
+                    total_h += int(h_str)
+                    total_ab += int(ab_str)
+                except ValueError:
+                    continue
+                    
+            if total_ab == 0: return 0
+            avg = total_h / total_ab
+            
+            if avg >= 0.400: form_val = 3
+            elif avg >= 0.330: form_val = 2
+            elif avg >= 0.280: form_val = 1
+            elif avg <= 0.100: form_val = -3
+            elif avg <= 0.180: form_val = -2
+            elif avg <= 0.220: form_val = -1
+            else: form_val = 0
+            
+            # --- UNFAZED TRAIT ---
+            if form_val < 0 and "Unfazed" in self.traits:
+                form_val = max(form_val, -1)
+                
+            return form_val
+
     # DYNAMIC MAIN STAT CALCULATORS (Properties)
     @property
     def contact(self):
@@ -82,20 +171,14 @@ class Player:
 
     @property
     def defense(self):
-        """
-        A unified dictionary returning both raw sub-stats and calculated 
-        top-level ratings for all defensive metrics.
-        """
         d = self.attributes.get('defense', {})
         
-        # Raw Sub-stats
         rng = d.get('def.range', 0)
         react = d.get('def.reaction', 0)
         glv = d.get('def.glove', 0)
         arm_str = d.get('def.ArmStr', 0)
         arm_acc = d.get('def.ArmAcc', 0)
         
-        # Top-level Composites
         arm_overall = int((arm_str + arm_acc) / 2)
         overall = int((rng + glv + arm_overall) / 3) if rng else 0
         
@@ -126,15 +209,13 @@ class Player:
 
     # UTILITY METHODS
     def __eq__(self, other):
-        if isinstance(other, Player):
-            return self.player_id == other.player_id
+        if isinstance(other, Player): return self.player_id == other.player_id
         return False
 
     def __hash__(self):
         return hash(self.player_id)
 
     def get_total_stat_sum(self):
-        """Calculates the sum of all raw sub-stats to track overall degradation."""
         total = 0
         for cat in ["batting", "pitching", "defense", "baserunning"]:
             for stat_val in self.attributes.get(cat, {}).values():
@@ -167,7 +248,6 @@ class Player:
                 print(f"  [RETIREMENT] {self.name} is contemplating retirement after a 20% decline.")
                 self.check_retirement(overall_rating=current_stat_sum/19, is_free_agent=True)
                 
-        # 4. Apply Physical Degradation if age > peak_age
         if self.age > self.peak_age:
             for category in ["batting", "pitching", "baserunning", "defense"]:
                 for stat_name, current_val in self.attributes.get(category, {}).items():
@@ -184,8 +264,6 @@ class Player:
                 self.attributes[cat][stat] = int(self.attributes[cat][stat] * (1 - rate))
 
     def apply_physical_degradation(self, category, stat_name, current_val):
-        """Applies natural age-related decline. Physical stats degrade faster than Mental stats."""
-        # NEW: Added def.range to the physical stats decay array
         physical_stats = ["strength", "bat_speed", "sprint_speed", "def.range", "def.reaction", "def.ArmStr", "arm_speed", "spin_rate"]
         is_physical = stat_name in physical_stats
         
@@ -244,30 +322,22 @@ class Player:
         b_stats = self.stats["batting"]
         p_stats = self.stats["pitching"]
 
-        # --- EVALUATE HITTERS ---
         if b_stats["AB"] >= 100:
             avg = b_stats["H"] / b_stats["AB"]
             obp = (b_stats["H"] + b_stats["BB"] + b_stats.get("HBP", 0)) / b_stats["PA"] if b_stats["PA"] > 0 else 0
             
-            # Grant bonuses to the underlying sub-stats
-            if avg >= 0.290:
-                bonus_rolls.extend(["timing", "barreling"])
-            if b_stats["HR"] >= 12:
-                bonus_rolls.extend(["strength", "bat_speed", "elevation"])
-            if obp >= 0.360 or b_stats["BB"] >= 25:
-                bonus_rolls.extend(["eye", "restraint"])
+            if avg >= 0.290: bonus_rolls.extend(["timing", "barreling"])
+            if b_stats["HR"] >= 12: bonus_rolls.extend(["strength", "bat_speed", "elevation"])
+            if obp >= 0.360 or b_stats["BB"] >= 25: bonus_rolls.extend(["eye", "restraint"])
 
-        # --- EVALUATE PITCHERS ---
         if p_stats["Outs"] >= 90:
             ip = p_stats["Outs"] / 3.0
             era = (p_stats["ER"] * 9) / ip
             k_per_9 = (p_stats["K"] * 9) / ip
             whip = (p_stats["BB"] + p_stats["H"]) / ip
             
-            if era <= 3.50 or whip <= 1.20:
-                bonus_rolls.extend(["accuracy", "command"])
-            if k_per_9 >= 9.5:
-                bonus_rolls.extend(["arm_speed", "deception", "spin_rate", "bite"])
+            if era <= 3.50 or whip <= 1.20: bonus_rolls.extend(["accuracy", "command"])
+            if k_per_9 >= 9.5: bonus_rolls.extend(["arm_speed", "deception", "spin_rate", "bite"])
 
         return bonus_rolls
 

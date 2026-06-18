@@ -1,9 +1,13 @@
 import random
 
-def calculate_steal_success(r_sprint, r_instincts, c_arm_str, c_arm_acc, c_reaction, target_base):
+def calculate_steal_success(r_sprint, r_instincts, c_arm_str, c_arm_acc, c_reaction, target_base, runner_traits=None):
     """
     Determines the outcome of a stolen base attempt using granular sub-stats.
     """
+    # --- SPEED DEMON TRAIT ---
+    if runner_traits and "Speed Demon" in runner_traits:
+        r_sprint += 7
+
     # 1. Establish the baseline success rate (Modern MLB averages)
     if target_base == 2:
         baseline_prob = 0.65  
@@ -27,10 +31,14 @@ def calculate_steal_success(r_sprint, r_instincts, c_arm_str, c_arm_acc, c_react
     
     return random.random() < final_prob
 
-def should_attempt_steal(r_sprint, r_instincts, target_base, manager_slider=3, speed_threshold=0):
+def should_attempt_steal(r_sprint, r_instincts, target_base, manager_slider=3, speed_threshold=0, runner_traits=None):
     """
     Blends player instinct (speed + instincts curve) with managerial philosophy.
     """
+    # --- SPEED DEMON TRAIT ---
+    if runner_traits and "Speed Demon" in runner_traits:
+        r_sprint += 7
+        
     runner_jump = (r_sprint * 0.7) + (r_instincts * 0.3)
     speed_factor = (runner_jump / 100.0) ** 4 
     

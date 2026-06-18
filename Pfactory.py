@@ -20,8 +20,11 @@ class PlayerFactory:
             "Ruth", "Mantle", "Mays", "Aaron", "Gehrig", "Ryan", "Ripken", "Gwynn", "Griffey", "Bonds"
         ]
 
-        # HITTER ARCHETYPES (13 Sub-Stats)
+        # --- TRAIT POOLS ---
+        self.pitching_traits = ["Marathon Man", "Escape Artist", "Groundball Guru", "Putaway Pitcher", "Rubber Arm", "Ice in the Veins", "Pitch to Contact", "Lights Out"]
+        self.hitting_traits = ["Clutch", "Table Setter", "First Pitch Killer", "Gold Glover", "Speed Demon", "Unfazed", "Platoon Punisher", "Launch Angle God"]
 
+        # HITTER ARCHETYPES (13 Sub-Stats)
         self.positional_archetypes = {
             "C": {
                 "Bench":  {"timing": 67, "barreling": 76, "strength": 84, "bat_speed": 76, "elevation": 86, "eye": 67, "restraint": 70, "sprint_speed": 38, "instincts": 38, "def.reaction": 57, "def.glove": 80, "def.ArmStr": 87, "def.ArmAcc": 84},
@@ -100,6 +103,30 @@ class PlayerFactory:
             "Gagne":     {"arm_speed": 86, "deception": 82, "accuracy": 74, "command": 74, "spin_rate": 84, "bite": 84, "stamina": 25}
         }
 
+    # --- NEW HELPER: Shared Trait Generator ---
+    def _generate_traits(self, is_pitcher=False):
+        player_traits = []
+        available = self.pitching_traits.copy() if is_pitcher else self.hitting_traits.copy()
+
+        # 60% chance for 1st trait
+        if random.uniform(0, 100) <= 60.0:
+            t1 = random.choice(available)
+            player_traits.append(t1)
+            available.remove(t1)
+
+            # 25% chance for 2nd trait
+            if random.uniform(0, 100) <= 25.0:
+                t2 = random.choice(available)
+                player_traits.append(t2)
+                available.remove(t2)
+
+                # 10% chance for 3rd trait
+                if random.uniform(0, 100) <= 10.0:
+                    t3 = random.choice(available)
+                    player_traits.append(t3)
+
+        return player_traits
+
     def get_next_id(self):
         self.sequence_tracker += 1
         return f"{self.current_season:04d}{self.sequence_tracker:08d}"
@@ -142,6 +169,9 @@ class PlayerFactory:
         hitter_stam = int(random.gauss(75, 7))
         hitter_stam = max(50, min(99, hitter_stam))
 
+        # --- GENERATE TRAITS ---
+        generated_traits = self._generate_traits(is_pitcher=False)
+
         # Map the raw generated stats into their appropriate buckets
         attributes = {
             "bats": random.choice(["R", "R", "L", "S"]),
@@ -174,12 +204,14 @@ class PlayerFactory:
                 "archetype": arch_name
             },
             "strategy": {"approach_slider": 3, "steal_2nd_slider": 3, "steal_3rd_slider": 3},
-            # Dummy pitching stats for position players
             "pitching": {"arm_speed": 30, "deception": 30, "accuracy": 30, "command": 30, "spin_rate": 30, "bite": 30, "stamina": 20},
-            "assigned_pos": target_pos
+            "Primary Pos": target_pos, 
+            "Game Pos": target_pos,
+            "traits": generated_traits # Assigned here!
         }
         
         player_obj = Player(player_id, name, attributes)
+        player_obj.traits = generated_traits # Direct access assignment
         player_obj.assigned_pos = target_pos
         return player_obj
     
@@ -214,6 +246,9 @@ class PlayerFactory:
         if role in ["MR", "LR"]: stamina = random.randint(40, 60)
         elif role in ["SU", "CL"]: stamina = random.randint(15, 30)
 
+        # --- GENERATE TRAITS ---
+        generated_traits = self._generate_traits(is_pitcher=True)
+
         # Map the raw generated stats into the pitching bucket
         attributes = {
             "bats": random.choice(["R", "L"]), 
@@ -238,11 +273,14 @@ class PlayerFactory:
                 "archetype": arch_name
             },
             "strategy": {"attack_slider": 3},
-            "assigned_pos": "P",
-            "role": role
+            "Primary Pos": "P",
+            "Game Pos": "P",
+            "role": role,
+            "traits": generated_traits # Assigned here!
         }
         
         player_obj = Player(player_id, name, attributes)
+        player_obj.traits = generated_traits # Direct access assignment
         player_obj.assigned_pos = "P"
         return player_obj
 

@@ -1,5 +1,5 @@
 import random
-from game_math import compress_rating, calculate_advantage_ratio
+from game_math import compress_rating, calculate_advantage_ratio, OOP_MATRIX
 from base_running import calculate_steal_success, should_attempt_steal
 
 class AtBatSimulator:
@@ -12,6 +12,11 @@ class AtBatSimulator:
         self.half_inning = half_inning
         self.is_home_batting = is_home_batting
         self.env = league_env.era_modifiers if league_env else {"power": 1.0, "contact": 1.0, "speed": 1.0, "pitching": 1.0, "defense": 1.0}
+
+        # Marathon Man: Boost stamina once per game start.
+        if "Marathon Man" in getattr(self.pitcher, 'traits', []) and not getattr(self.pitcher, 'marathon_boosted', False):
+            self.pitcher.current_stamina += 20
+            self.pitcher.marathon_boosted = True
 
         b_attr = self.batter.attributes.get('batting', {})
         p_attr = self.pitcher.attributes.get('pitching', {})
@@ -31,10 +36,15 @@ class AtBatSimulator:
         base_spin = p_attr.get('spin_rate', 50) * self.env["pitching"]
         base_bite = p_attr.get('bite', 50) * self.env["pitching"]
 
+        # --- PLATOON PUNISHER TRAIT INTEGRATION ---
         platoon_mod = -3 if self.pitcher.attributes.get('throws') == self.batter.attributes.get('bats') else 0
+        if platoon_mod == 0 and "Platoon Punisher" in getattr(self.batter, 'traits', []):
+            platoon_mod += 3 # Extra boost for having the opposite-handed advantage
+
         approach_slider = self.batter.attributes.get('strategy', {}).get('approach_slider', 0)
         attack_slider = self.pitcher.attributes.get('strategy', {}).get('attack_slider', 0)
 
+        # Fatigue Logic
         stamina_penalty = 0
         max_b_stam = b_attr.get('stamina', 100)
         cur_b_stam = getattr(self.batter, 'current_stamina', max_b_stam)
@@ -44,19 +54,25 @@ class AtBatSimulator:
             safe_pct = max(0.0, b_stam_pct) 
             stamina_penalty = -(((40.0 - safe_pct) / 40.0) * 15.0)
 
-        self.ab_timing = base_timing + platoon_mod + stamina_penalty - approach_slider
-        self.ab_barreling = base_barreling + platoon_mod + stamina_penalty - approach_slider
-        self.ab_eye = base_eye + stamina_penalty - approach_slider
-        self.ab_restraint = base_restraint + stamina_penalty - approach_slider
-        self.ab_strength = base_strength + platoon_mod + stamina_penalty + approach_slider
-        self.ab_bat_speed = base_bat_speed + stamina_penalty + approach_slider
-        self.ab_elevation = base_elevation + stamina_penalty
-        self.ab_arm_speed = base_arm_speed + attack_slider
-        self.ab_deception = base_deception + attack_slider
-        self.ab_accuracy = base_accuracy - attack_slider
-        self.ab_command = base_command - attack_slider
-        self.ab_spin = base_spin + attack_slider
-        self.ab_bite = base_bite + attack_slider
+        # --- APPLY MOMENTUM (FORM) BONUS ---
+        b_form = getattr(self.batter, 'form', 0) * 2
+        p_form = getattr(self.pitcher, 'form', 0) * 2
+
+        # Final Calculation with Form + Static Trait Impacts
+        self.ab_timing = base_timing + platoon_mod + stamina_penalty - approach_slider + b_form
+        self.ab_barreling = base_barreling + platoon_mod + stamina_penalty - approach_slider + b_form
+        self.ab_eye = base_eye + stamina_penalty - approach_slider + b_form
+        self.ab_restraint = base_restraint + stamina_penalty - approach_slider + b_form
+        self.ab_strength = base_strength + platoon_mod + stamina_penalty + approach_slider + b_form
+        self.ab_bat_speed = base_bat_speed + stamina_penalty + approach_slider + b_form
+        self.ab_elevation = base_elevation + stamina_penalty + b_form
+        
+        self.ab_arm_speed = base_arm_speed + attack_slider + p_form
+        self.ab_deception = base_deception + attack_slider + p_form
+        self.ab_accuracy = base_accuracy - attack_slider + p_form
+        self.ab_command = base_command - attack_slider + p_form
+        self.ab_spin = base_spin + attack_slider + p_form
+        self.ab_bite = base_bite + attack_slider + p_form
 
     def roll_rng(self):
         return int(random.gauss(0, 18))
@@ -78,18 +94,18 @@ class AtBatSimulator:
         if self.balls == 3: count_leverage += 4
         if self.strikes == 2: count_leverage -= 4
 
-        timing = max(1, self.ab_timing + count_leverage + self.roll_rng())
-        barreling = max(1, self.ab_barreling + count_leverage + self.roll_rng())
-        eye = max(1, self.ab_eye + count_leverage + self.roll_rng())
-        restraint = max(1, self.ab_restraint + count_leverage + self.roll_rng())
-        strength = max(1, self.ab_strength + self.roll_rng())
-        bat_speed = max(1, self.ab_bat_speed + self.roll_rng())
-        accuracy = max(1, self.ab_accuracy + p_stamina_penalty + self.roll_rng())
-        command = max(1, self.ab_command + p_stamina_penalty + self.roll_rng())
-        arm_speed = max(1, self.ab_arm_speed + p_stamina_penalty + self.roll_rng())
-        deception = max(1, self.ab_deception + p_stamina_penalty + self.roll_rng())
-        spin = max(1, self.ab_spin + p_stamina_penalty + self.roll_rng())
-        bite = max(1, self.ab_bite + p_stamina_penalty + self.roll_rng())
+        timing = self.apply_trait_modifiers("timing", self.ab_timing + count_leverage + self.roll_rng(), False)
+        barreling = self.apply_trait_modifiers("barreling", self.ab_barreling + count_leverage + self.roll_rng(), False)
+        eye = self.apply_trait_modifiers("eye", self.ab_eye + count_leverage + self.roll_rng(), False)
+        restraint = self.apply_trait_modifiers("restraint", self.ab_restraint + count_leverage + self.roll_rng(), False)
+        strength = self.apply_trait_modifiers("strength", self.ab_strength + self.roll_rng(), False)
+        bat_speed = self.apply_trait_modifiers("bat_speed", self.ab_bat_speed + self.roll_rng(), False)
+        accuracy = self.apply_trait_modifiers("accuracy", self.ab_accuracy + p_stamina_penalty + self.roll_rng(), True)
+        command = self.apply_trait_modifiers("command", self.ab_command + p_stamina_penalty + self.roll_rng(), True)
+        arm_speed = self.apply_trait_modifiers("arm_speed", self.ab_arm_speed + p_stamina_penalty + self.roll_rng(), True)
+        deception = self.apply_trait_modifiers("deception", self.ab_deception + p_stamina_penalty + self.roll_rng(), True)
+        spin = self.apply_trait_modifiers("spin_rate", self.ab_spin + p_stamina_penalty + self.roll_rng(), True)
+        bite = self.apply_trait_modifiers("bite", self.ab_bite + p_stamina_penalty + self.roll_rng(), True)
 
         if random.uniform(0, 100) <= 0.25:
             return {"result": "HBP", "details": "Pitch got away and hit the batter!"}
@@ -106,7 +122,6 @@ class AtBatSimulator:
             bases = self.half_inning.bases
             runner_on_1st, runner_on_2nd, runner_on_3rd = bases[1], bases[2], bases[3]
             
-            # Use the new defense property cleanly
             catcher = self.half_inning.defense.get("C")
             if catcher and hasattr(catcher, 'defense'):
                 c_def = catcher.defense
@@ -205,13 +220,11 @@ class AtBatSimulator:
         }
     
     def apply_post_at_bat_fatigue(self):
-        # Safely deduct stamina directly from the attribute, referencing the batting dictionary if missing
         max_stam = self.batter.attributes.get('batting', {}).get('stamina', 100)
         curr_stam = getattr(self.batter, 'current_stamina', max_stam)
         self.batter.current_stamina = max(0, curr_stam - 2)
 
     def apply_post_at_bat_pitcher_fatigue(self):
-        # Safely deduct stamina directly from the attribute, referencing the pitching dictionary if missing
         max_stamina = self.pitcher.attributes.get('pitching', {}).get('stamina', 100)
         curr_stamina = getattr(self.pitcher, 'current_stamina', max_stamina)
         self.pitcher.current_stamina = max(0, curr_stamina - self.pitch_count)
@@ -222,6 +235,11 @@ class AtBatSimulator:
         
         while self.balls < 4 and self.strikes < 3:
             self.pitch_count += 1
+
+            # --- PITCH TO CONTACT TRAIT ---
+            if "Pitch to Contact" in getattr(self.pitcher, 'traits', []) and random.uniform(0, 100) <= 10.0:
+                self.pitch_count -= 1 # 10% chance this pitch does not count against their stamina
+
             pitch = self.simulate_single_pitch(is_bunting=bunt_attempt, allow_2_strike_bunt=allow_2_strike_bunt)
             
             if pitch["result"] == "Steal Attempt":
@@ -275,6 +293,8 @@ class AtBatSimulator:
                 description = play_outcome["reason"]
                 
                 batter_sprint = self.batter.attributes.get('baserunning', {}).get('sprint_speed', 75)
+                if "Speed Demon" in getattr(self.batter, 'traits', []):
+                    batter_sprint += 7
                 fielder_arm_str = play_outcome.get("fielder_arm_str", 75)
                 fielder_arm_acc = play_outcome.get("fielder_arm_acc", 75)
 
@@ -390,6 +410,17 @@ class AtBatSimulator:
             trajectory = random.choices(["Ground Ball", "Pop Up", "Player-Height Line Drive"], weights=trajectory_weights)[0]
             power_transfer = 0.40
 
+        # --- TRAIT INTEGRATION: OUTCOME MODIFIERS ---
+        if "Groundball Guru" in getattr(self.pitcher, 'traits', []) and trajectory in ["Over-Infield Line Drive", "Player-Height Line Drive"]:
+            if random.uniform(0, 100) <= 10.0:
+                trajectory = "Ground Ball"
+                power_transfer = 0.40
+                
+        if "Launch Angle God" in getattr(self.batter, 'traits', []) and trajectory == "Ground Ball":
+            if random.uniform(0, 100) <= 10.0:
+                trajectory = random.choice(["Player-Height Line Drive", "Fly Ball"])
+                power_transfer = 0.75
+
         baseline_distance = (strength * 5.2) * power_transfer
 
         if trajectory == "Ground Ball": raw_distance = baseline_distance * random.uniform(0.05, 0.28) 
@@ -495,7 +526,6 @@ class AtBatSimulator:
 
         fielder_obj = defense.get(position)
         
-        # Use the new defense property cleanly
         if fielder_obj and hasattr(fielder_obj, 'defense'):
             f_def = fielder_obj.defense
             r_attr = fielder_obj.attributes.get('baserunning', {})
@@ -506,6 +536,15 @@ class AtBatSimulator:
             f_arm_str = f_def.get('arm_str', 75)
             f_arm_acc = f_def.get('arm_acc', 75)
             f_sprint = r_attr.get('sprint_speed', 75)
+
+            f_primary = getattr(fielder_obj, 'primary_pos', position)
+            oop_mod = OOP_MATRIX.get(f_primary, {}).get(position, 0.50)
+            
+            f_reaction *= oop_mod
+            f_range *= oop_mod
+            f_glove *= oop_mod
+            f_arm_str *= max(0.75, oop_mod)
+            f_arm_acc *= oop_mod
             
             f_max_stam = fielder_obj.attributes.get('batting', {}).get('stamina', 100)
             f_cur_stam = getattr(fielder_obj, 'current_stamina', f_max_stam)
@@ -532,7 +571,6 @@ class AtBatSimulator:
         f_arm_str *= def_mod
         f_arm_acc *= def_mod
 
-        # Effective Range is now a pure defensive calculation!
         effective_range = (f_reaction * 0.4) + (f_range * 0.6)
 
         if hit_data["quality"] == "Crushed!": difficulty = 87 if hit_data["trajectory"] == "Player-Height Line Drive" else 81
@@ -636,6 +674,8 @@ class AtBatSimulator:
                 else: target_base = 1
 
         runner_speed = target_runner.attributes.get('baserunning', {}).get('sprint_speed', 75) if target_runner != self.batter else batter_sprint
+        if target_runner != self.batter and "Speed Demon" in getattr(target_runner, 'traits', []):
+            runner_speed += 7
 
         effective_arm_acc = max(50, min(100, fielder_arm_acc))
         throw_error_prob = 12.0 * ((100 - effective_arm_acc) / 50.0) ** 1.25
@@ -694,7 +734,9 @@ class AtBatSimulator:
                 "runner_held": runner_held, "reason": primary_out_reason
             }
     
-    def resolve_extra_base_attempt(self, runner_sprint, fielder_arm_str, fielder_arm_acc, hit_location, target_base, is_hit_and_run=False):
+    def resolve_extra_base_attempt(self, runner_sprint, fielder_arm_str, fielder_arm_acc, hit_location, target_base, is_hit_and_run=False, runner_traits=None):
+        if runner_traits and "Speed Demon" in runner_traits:
+            runner_sprint += 7
         safe_prob = 60 + ((runner_sprint - fielder_arm_str) * 0.5)
         if is_hit_and_run: safe_prob += 20 
 
@@ -722,7 +764,9 @@ class AtBatSimulator:
         else:
             return {"safe": False, "error": False, "reason": f"OUT at {target_base}! Gunned down by the outfielder."}
     
-    def resolve_tag_up(self, runner_sprint, fielder_arm_str, distance, target_base, hit_location):
+    def resolve_tag_up(self, runner_sprint, fielder_arm_str, distance, target_base, hit_location, runner_traits=None):
+        if runner_traits and "Speed Demon" in runner_traits:
+            runner_sprint += 7
         safe_prob = 50.0 + ((runner_sprint - fielder_arm_str) * 0.62) + ((distance - 270) * 0.3)
 
         if target_base == "3B" and hit_location in ["Left Field Line", "Dead Left Field", "Left Center Gap"]:
@@ -751,3 +795,29 @@ class AtBatSimulator:
             return "1B"
             
         return "1B"
+    
+    def apply_trait_modifiers(self, attr_name, value, is_pitcher):
+        target = self.pitcher if is_pitcher else self.batter
+        traits = getattr(target, 'traits', [])
+        
+        # PITCHER TRAITS (Dynamic)
+        if is_pitcher:
+            if "Escape Artist" in traits and self.half_inning and any(self.half_inning.bases[b] for b in [2, 3]):
+                if attr_name in ["accuracy", "bite"]: value += 6
+            if "Putaway Pitcher" in traits and self.strikes == 2:
+                if attr_name in ["arm_speed", "deception"]: value += 6
+            if "Lights Out" in traits and self.half_inning and self.half_inning.inning_num >= 8:
+                run_diff = abs(self.half_inning.batting_team.stats["batting"]["R"] - self.half_inning.fielding_team.stats["batting"]["R"])
+                if run_diff <= 3: value += 4
+        
+        # BATTER TRAITS (Dynamic)
+        else:
+            if "Clutch" in traits and self.half_inning and any(self.half_inning.bases[b] for b in [1, 2, 3]):
+                if attr_name in ["timing", "strength"]: value += 6
+            if "Table Setter" in traits and self.half_inning and self.half_inning.outs == 0:
+                if attr_name in ["eye", "restraint"]: value += 7
+            if "First Pitch Killer" in traits and self.balls == 0 and self.strikes == 0:
+                if attr_name in ["barreling", "bat_speed"]: value += 7
+                elif attr_name == "restraint": value -= 7
+                
+        return value

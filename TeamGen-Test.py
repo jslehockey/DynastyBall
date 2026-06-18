@@ -14,7 +14,7 @@ def build_full_roster(factory, team_name, is_expansion=True, is_minor=False, lea
     
     # --- 1. GENERATE HITTERS ---
     base_positions = ["C", "1B", "2B", "3B", "SS", "LF", "CF", "RF"]
-    extra_positions = random.sample(base_positions, 5) # 5 duplicates for the bench/DH
+    extra_positions = random.sample(base_positions, 5)
     assigned_positions = base_positions + extra_positions
     random.shuffle(assigned_positions)
     
@@ -92,6 +92,13 @@ def flatten_player(player, team_name):
     p = attr.get('pitching', {})
     dev = attr.get('development', {})
     
+    # --- NEW: Extracting Traits ---
+    traits = getattr(player, 'traits', [])
+    t1 = traits[0] if len(traits) > 0 else "-"
+    t2 = traits[1] if len(traits) > 1 else "-"
+    t3 = traits[2] if len(traits) > 2 else "-"
+    t_count = len(traits)
+    
     return [
         player.player_id, 
         player.name, 
@@ -102,6 +109,9 @@ def flatten_player(player, team_name):
         dev.get('age', 18), 
         dev.get('archetype', 'Unknown'),
         
+        # --- NEW: Trait Columns inserted here ---
+        t1, t2, t3, t_count,
+        
         # Batting
         player.contact, b.get('timing', 0), b.get('barreling', 0),
         player.power, b.get('strength', 0), b.get('bat_speed', 0), b.get('elevation', 0),
@@ -110,7 +120,7 @@ def flatten_player(player, team_name):
         # Baserunning
         player.speed, r.get('sprint_speed', 0), r.get('instincts', 0),
         
-       # Defense (Flattened into individual values)
+        # Defense (Flattened into individual values)
         player.defense['overall'], 
         player.defense['range'], 
         player.defense['reaction'], 
@@ -131,8 +141,10 @@ def flatten_player(player, team_name):
 def main():
     factory = PlayerFactory(current_season=2026)
     
+    # --- NEW: Added Trait Headers to match extraction ---
     headers = [
         "ID", "Name", "Team", "Pos", "Role/Order", "DH", "Age", "Arch", 
+        "Trait1", "Trait2", "Trait3", "TraitCount",
         
         "Contact", "Con.Timing", "Con.Barrel", 
         "Power", "Pow.Str", "Pow.BatSpd", "Pow.Elev", 
