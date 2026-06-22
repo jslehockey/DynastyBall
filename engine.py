@@ -41,14 +41,14 @@ class AtBatSimulator:
 
         # --- WEATHER IMPACT ON BASE STATS ---
         if self.weather["temp"] < 50:
-            base_accuracy = max(1, base_accuracy - 2)  # Cold fingers reduce control
+            base_accuracy = max(1, base_accuracy - 2)  
             base_command = max(1, base_command - 2)
-            base_strength = max(1, base_strength - 2)  # Cold deadens the ball
+            base_strength = max(1, base_strength - 2)  
         elif self.weather["temp"] > 90:
-            base_strength = min(99, base_strength + 2) # Hot air carries
+            base_strength = min(99, base_strength + 2) 
         if self.weather.get("precipitation") == "Rain":
             rain_penalty = random.randint(2, 3)
-            base_accuracy = max(1, base_accuracy - rain_penalty) # Slippery baseball
+            base_accuracy = max(1, base_accuracy - rain_penalty) 
             base_command = max(1, base_command - rain_penalty)
 
         # --- PLATOON PUNISHER TRAIT INTEGRATION ---
@@ -120,7 +120,6 @@ class AtBatSimulator:
         spin = self.apply_trait_modifiers("spin_rate", self.ab_spin + p_stamina_penalty + self.roll_rng(), True)
         bite = self.apply_trait_modifiers("bite", self.ab_bite + p_stamina_penalty + self.roll_rng(), True)
 
-        # Rain drastically increases wild pitch/HBP risk
         hbp_chance = 0.50 if self.weather.get("precipitation") == "Rain" else 0.25
         if random.uniform(0, 100) <= hbp_chance:
             return {"result": "HBP", "details": "Pitch got away and hit the batter!"}
@@ -179,9 +178,8 @@ class AtBatSimulator:
                 r_sprint = r_base.get('sprint_speed', 75)
                 r_instincts = r_base.get('instincts', 75)
                 
-                # --- WEATHER: RAIN MODIFIES STEAL ATTEMPTS ---
                 if self.weather.get("precipitation") == "Rain":
-                    r_sprint = max(1, r_sprint - 5) # Wet dirt slows the runner's jump
+                    r_sprint = max(1, r_sprint - 5) 
                 
                 is_safe = calculate_steal_success(r_sprint, r_instincts, c_arm_str, c_arm_acc, c_reaction, target_base)
                 
@@ -248,7 +246,6 @@ class AtBatSimulator:
         curr_stamina = getattr(self.pitcher, 'current_stamina', max_stamina)
         
         drain = self.pitch_count
-        # --- WEATHER: HEAT MULTIPLIES DRAIN ---
         if self.weather["temp"] >= 90:
             drain *= 1.15
             
@@ -408,17 +405,20 @@ class AtBatSimulator:
         locations = ["Left Field Line", "Dead Left Field", "Left Center Gap", "Dead Center", "Right Center Gap", "Dead Right Field", "Right Field Line"]
         final_location = random.choices(locations, weights=weights, k=1)[0]
 
-        # --- DYNAMIC STADIUM DIMENSIONS HOOKUP ---
+        # --- DYNAMIC STADIUM DIMENSIONS & HEIGHTS HOOKUP ---
         if self.half_inning:
             home_team = self.half_inning.batting_team if self.is_home_batting else self.half_inning.fielding_team
-            park_dimensions = home_team.stadium.dimensions
+            park_dimensions = getattr(home_team.stadium, 'dimensions', {loc: 330 for loc in locations})
+            park_heights = getattr(home_team.stadium, 'heights', {loc: 10 for loc in locations})
         else:
             park_dimensions = {
                 "Left Field Line": 340, "Dead Left Field": 360, "Left Center Gap": 380,
                 "Dead Center": 400, "Right Center Gap": 380, "Dead Right Field": 360, "Right Field Line": 340
             }
+            park_heights = {loc: 10 for loc in locations}
         
         wall_distance = park_dimensions[final_location]
+        wall_height = park_heights[final_location]
         elev = self.ab_elevation
 
         if hit_quality == "Crushed!":
@@ -460,7 +460,6 @@ class AtBatSimulator:
 
         distance_with_variance = raw_distance + (self.roll_rng() * 1.5)
 
-        # --- WEATHER: WIND MODIFIER ---
         if trajectory in ["Fly Ball", "Over-Infield Line Drive"]:
             wind_effect = self.weather.get("wind_speed", 0) * 0.8
             direction = self.weather.get("wind_direction", "Calm")
@@ -473,16 +472,43 @@ class AtBatSimulator:
 
         target_position, hit_type = None, "In Play"
         display_location = f"to {final_location}" 
+        rob_opportunity = False
 
+        # --- PHASE 3: WALL HEIGHT PHYSICS AND ROB LOGIC ---
         if final_distance >= wall_distance and trajectory in ["Fly Ball", "Over-Infield Line Drive"]:
-            target_position, hit_type = "Bleachers", "Home Run"
-            location_map = {
-                "Left Field Line": "Deep Left Field Line", "Dead Left Field": "Deep Left Field",
-                "Left Center Gap": "Deep Left Center", "Dead Center": "Deep Center Field",
-                "Right Center Gap": "Deep Right Center", "Dead Right Field": "Deep Right Field",
-                "Right Field Line": "Deep Right Field Line"
-            }
-            display_location = f"{final_distance} feet to {location_map.get(final_location, 'the bleachers')}"
+            clearance = final_distance - wall_distance
+            
+            # 1. Does it hit the wall instead of clearing it?
+            # A line drive needs much more distance (clearance) to get over a high wall due to its flat arc.
+            required_clearance = (wall_height * 1.2) if trajectory == "Over-Infield Line Drive" else (wall_height * 0.4)
+            
+            if clearance < required_clearance:
+                hit_type = "Off the Wall"
+                display_location = f"off the {wall_height}-foot wall in {final_location}"
+                
+                # Pre-determine the target position for the runner advancement logic
+                if final_location in ["Left Field Line", "Dead Left Field", "Left Center Gap"]: target_position = "LF"
+                elif final_location == "Dead Center": target_position = "CF"
+                elif final_location in ["Right Center Gap", "Dead Right Field", "Right Field Line"]: target_position = "RF"
+
+            else:
+                # 2. It clears the wall. Is it catchable?
+                # Only short walls (<= 15 feet) and bare clearances trigger a rob attempt
+                if wall_height <= 15:
+                    if (trajectory == "Fly Ball" and clearance <= 4) or (trajectory == "Over-Infield Line Drive" and clearance <= 12):
+                        rob_opportunity = True
+
+                target_position = "Bleachers"
+                hit_type = "Home Run"
+                
+                location_map = {
+                    "Left Field Line": "Deep Left Field Line", "Dead Left Field": "Deep Left Field",
+                    "Left Center Gap": "Deep Left Center", "Dead Center": "Deep Center Field",
+                    "Right Center Gap": "Deep Right Center", "Dead Right Field": "Deep Right Field",
+                    "Right Field Line": "Deep Right Field Line"
+                }
+                display_location = f"{final_distance} feet to {location_map.get(final_location, 'the bleachers')}"
+
         elif final_distance <= 130:
             if final_location == "Left Field Line": target_position, display_location = "3B", "down the third base line"
             elif final_location == "Dead Left Field": target_position, display_location = "3B", "into the 5-6 hole"
@@ -499,16 +525,63 @@ class AtBatSimulator:
         return {
             "tendency": timing_tendency, "location": final_location, "display_location": display_location,  
             "quality": hit_quality, "trajectory": trajectory, "distance": final_distance,
-            "target_position": target_position, "hit_type": hit_type
+            "target_position": target_position, "hit_type": hit_type, "wall_height": wall_height,
+            "rob_opportunity": rob_opportunity
         }
     
     def resolve_defense(self, hit_data, defense):
         position = hit_data["target_position"]
         
+        # Helper to extract arm ratings easily for short circuits
+        def get_fielder_arm(pos):
+            fld = defense.get(pos)
+            if fld and hasattr(fld, 'defense'):
+                return fld.defense.get('arm_str', 75), fld.defense.get('arm_acc', 75)
+            return 75, 75
+
+        # --- NEW: ROBBED HOME RUN LOGIC ---
         if hit_data["hit_type"] == "Home Run":
+            if hit_data.get("rob_opportunity"):
+                pos_map = {"Left Field Line": "LF", "Dead Left Field": "LF", "Left Center Gap": "CF", "Dead Center": "CF", "Right Center Gap": "CF", "Dead Right Field": "RF", "Right Field Line": "RF"}
+                of_pos = pos_map.get(hit_data["location"], "CF")
+                fielder = defense.get(of_pos)
+                
+                f_glove = 75; f_sprint = 75; f_react = 75
+                if fielder and hasattr(fielder, 'defense'):
+                    f_glove = fielder.defense.get('glove', 75)
+                    f_react = fielder.defense.get('reaction', 75)
+                    f_sprint = fielder.attributes.get('baserunning', {}).get('sprint_speed', 75) # Using sprint as vertical leap proxy
+                
+                # A rob is extremely difficult: ~5% to 35% chance based heavily on athleticism and glove
+                rob_prob = (f_glove * 0.4) + (f_react * 0.3) + (f_sprint * 0.3) - 40 
+                rob_prob = max(1.0, min(rob_prob, 35.0)) 
+                
+                if self.weather.get("precipitation") == "Rain":
+                    rob_prob *= 0.50 # Wet wall/muddy track makes jumping incredibly risky/difficult
+                    
+                if random.uniform(0, 100) <= rob_prob:
+                    return {
+                        "fielder_state": "caught_in_air", "out_recorded_on_catch": True,
+                        "reason": f"ROBBED! {of_pos} times the leap perfectly at the {hit_data['wall_height']}-foot wall and brings it back! Unbelievable catch!"
+                    }
+                else:
+                    return {
+                        "fielder_state": "home_run", "out_recorded_on_catch": False,
+                        "reason": f"HOME RUN! {of_pos} goes back, leaps... but it's just out of reach into the front row! ({hit_data['distance']}ft to {hit_data['location']})"
+                    }
+
             return {
                 "fielder_state": "home_run", "out_recorded_on_catch": False, 
                 "reason": f"HOME RUN! ({hit_data['distance']}ft to {hit_data['location']})"
+            }
+
+        # --- NEW: OFF THE WALL LOGIC ---
+        if hit_data["hit_type"] == "Off the Wall":
+            arm_str, arm_acc = get_fielder_arm(position)
+            return {
+                "fielder_state": "clean_hit_outfield", "out_recorded_on_catch": False,
+                "fielder_arm_str": arm_str, "fielder_arm_acc": arm_acc,
+                "reason": f"Hit! It smacks high off the {hit_data['wall_height']}-foot wall in {hit_data['location']} and bounces back!"
             }
 
         distance, location, trajectory = hit_data["distance"], hit_data["location"], hit_data["trajectory"]
@@ -611,6 +684,7 @@ class AtBatSimulator:
         f_arm_acc *= def_mod
 
         effective_range = (f_reaction * 0.4) + (f_range * 0.6)
+        effective_glove = max(50, min(100, f_glove)) 
 
         if hit_data["quality"] == "Crushed!": difficulty = 87 if hit_data["trajectory"] == "Player-Height Line Drive" else 81
         elif hit_data["quality"] == "Solid Contact": difficulty = 69
@@ -620,7 +694,48 @@ class AtBatSimulator:
             difficulty += 13
 
         range_roll = effective_range + self.roll_rng()
+        
         if range_roll < difficulty:
+            miss_margin = difficulty - range_roll
+            
+            if 0 < miss_margin <= 15 and hit_data["trajectory"] != "Pop Up":
+                dive_success_prob = max(5.0, (effective_glove * 0.6 + f_reaction * 0.4) - miss_margin)
+                
+                if random.uniform(0, 100) < dive_success_prob:
+                    if hit_data["trajectory"] == "Ground Ball" and position in ["1B", "2B", "3B", "SS"]:
+                        return {
+                            "fielder_state": "clean_gather_infield", "out_recorded_on_catch": False, 
+                            "fielder_arm_str": f_arm_str, "fielder_arm_acc": f_arm_acc, 
+                            "reason": f"Spectacular diving stop by {position}! Quickly to their feet."
+                        }
+                    else:
+                        out_type = "Diving catch" if hit_data["trajectory"] in ["Fly Ball", "Player-Height Line Drive", "Over-Infield Line Drive"] else "Caught"
+                        return {
+                            "fielder_state": "caught_in_air", "out_recorded_on_catch": True,
+                            "reason": f"Top play! {position} lays out and makes a {out_type.lower()} ({hit_data['distance']}ft)!"
+                        }
+                else:
+                    dive_error_prob = 25.0 * ((100 - effective_glove) / 50.0)
+                    if self.weather.get("precipitation") == "Rain": dive_error_prob *= 1.20
+                        
+                    if random.uniform(0, 100) < dive_error_prob:
+                        return {
+                            "fielder_state": "error", "out_recorded_on_catch": False, 
+                            "reason": f"Error! {position} dives but it deflects off the glove in {hit_data['location']}."
+                        }
+                    else:
+                        if position in ["LF", "CF", "RF"]:
+                            hit_data["distance"] = min(hit_data["distance"] + 60, 400) 
+                            return {
+                                "fielder_state": "clean_hit_outfield", "out_recorded_on_catch": False,
+                                "reason": f"Hit! {position} dives and comes up empty. The ball rolls past them in {hit_data['location']}!"
+                            }
+                        else:
+                            return {
+                                "fielder_state": "past_infielder", "out_recorded_on_catch": False,
+                                "reason": f"Hit! {position} lays out but it's just out of reach into the outfield."
+                            }
+
             if hit_data["trajectory"] == "Ground Ball" and position in ["1B", "2B", "3B", "SS"]:
                 return {
                     "fielder_state": "past_infielder", "out_recorded_on_catch": False,
@@ -632,7 +747,6 @@ class AtBatSimulator:
                     "reason": f"Hit! Drops in or gets past the {position} ({hit_data['distance']}ft)."
                 }
 
-        effective_glove = max(50, min(100, f_glove))
         base_error_prob = 12.0 * ((100 - effective_glove) / 50.0) ** 1.25
         
         if hit_data["trajectory"] == "Player-Height Line Drive": error_prob = base_error_prob * 2.0  
@@ -642,7 +756,6 @@ class AtBatSimulator:
         if hit_data["quality"] == "Crushed!": error_prob *= 1.5 
         if is_sprinting_catch: error_prob += 3.5 
         
-        # --- WEATHER: RAIN INCREASES ERROR PROBABILITY ---
         if self.weather.get("precipitation") == "Rain":
             error_prob *= 1.045
 
@@ -843,7 +956,6 @@ class AtBatSimulator:
         target = self.pitcher if is_pitcher else self.batter
         traits = getattr(target, 'traits', [])
         
-        # PITCHER TRAITS (Dynamic)
         if is_pitcher:
             if "Escape Artist" in traits and self.half_inning and any(self.half_inning.bases[b] for b in [2, 3]):
                 if attr_name in ["accuracy", "bite"]: value += 6
@@ -852,8 +964,6 @@ class AtBatSimulator:
             if "Lights Out" in traits and self.half_inning and self.half_inning.inning_num >= 8:
                 run_diff = abs(self.half_inning.batting_team.stats["batting"]["R"] - self.half_inning.fielding_team.stats["batting"]["R"])
                 if run_diff <= 3: value += 4
-        
-        # BATTER TRAITS (Dynamic)
         else:
             if "Clutch" in traits and self.half_inning and any(self.half_inning.bases[b] for b in [1, 2, 3]):
                 if attr_name in ["timing", "strength"]: value += 6

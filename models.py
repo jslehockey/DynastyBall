@@ -354,17 +354,25 @@ DEFAULT_DIMENSIONS = {
 }
 
 class Stadium:
-    def __init__(self, name="Generic Park", custom_dimensions=None):
+    def __init__(self, name="Generic Park", custom_dimensions=None, custom_heights=None):
         self.name = name
-        # Start with the default safety net
         self.dimensions = DEFAULT_DIMENSIONS.copy()
         
-        # If custom dimensions are passed (e.g., from your Google Sheets), overwrite the defaults
+        # Default all wall heights to a standard 10 feet
+        self.heights = {sector: 10 for sector in DEFAULT_DIMENSIONS.keys()}
+        
+        # Process Custom Dimensions
         if custom_dimensions and isinstance(custom_dimensions, dict):
             for sector, distance in custom_dimensions.items():
                 if distance and int(distance) > 0:
                     self.dimensions[sector] = int(distance)
-
+                    
+        # Process Custom Heights
+        if custom_heights and isinstance(custom_heights, dict):
+            for sector, height in custom_heights.items():
+                if height and int(height) > 0:
+                    self.heights[sector] = int(height)
+                    
 class LeagueEnvironment:
     def __init__(self, power=1.0, contact=1.0, speed=1.0, pitching=1.0, defense=1.0, max_shift=0.015):
         self.era_modifiers = {

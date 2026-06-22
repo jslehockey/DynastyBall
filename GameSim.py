@@ -42,56 +42,73 @@ class SimulationEngine:
         self.parks = {} 
         self.standings = {team: {"W": 0, "L": 0, "RS": 0, "RA": 0} for team in self.teams}
         self.game_log = []
+        self.boxscores = []
         self.player_stats = {}
         self.current_day = 0
         self.weather_system = LeagueWeatherSystem()
 
     def _load_stadium_dimensions(self):
-        print("  > Loading stadium dimensions from 'Parks' sheet...")
+        print("  > Loading stadium dimensions and wall heights from 'Parks' sheet...")
         try:
             park_records = SHEET.worksheet("Parks").get_all_records()
             
-            # --- NEW: Sector-Specific Dimension Limits ---
-            limits = {
-                "Left Field Line": (300, 350),
-                "Dead Left Field": (330, 380),
-                "Left Center Gap": (350, 400),
-                "Dead Center": (380, 420),
-                "Right Center Gap": (350, 400),
-                "Dead Right Field": (330, 380),
+            # Distance limits exactly as you specified
+            dist_limits = {
+                "Left Field Line": (300, 350), "Dead Left Field": (320, 375),
+                "Left Center Gap": (340, 400), "Dead Center": (380, 425),
+                "Right Center Gap": (340, 400), "Dead Right Field": (320, 375),
                 "Right Field Line": (300, 350)
             }
+            height_limits = (10, 50)
             
-            # Updated validator to check against the specific sector limits
-            def validate_distance(value, sector, default):
-                min_dist, max_dist = limits[sector]
+            def validate_val(value, min_val, max_val, default):
+                """Ensures the value is an integer and falls within the zone's specific limits."""
                 try:
-                    dist = int(value)
-                    if min_dist <= dist <= max_dist:
-                        return dist
+                    val = int(value)
+                    if min_val <= val <= max_val:
+                        return val
                     else:
-                        print(f"    [WARNING] {sector} dimension {dist} out of bounds ({min_dist}-{max_dist}). Defaulting to {default}.")
+                        print(f"    [WARNING] Value {val} out of bounds ({min_val}-{max_val}). Defaulting to {default}.")
                         return default
                 except (ValueError, TypeError):
                     return default
+                    
+            def get_key(row, partial_matches):
+                """Fuzzy matcher: finds the column value even if the header text changes slightly."""
+                for k in row.keys():
+                    for match in partial_matches:
+                        if match.lower() in k.lower():
+                            return row[k]
+                return None
 
             for row in park_records:
                 team_name = row.get("Team")
-                if not team_name: 
-                    continue
+                if not team_name: continue
 
-                # Safely parse, passing the sector name for precise validation
+                # 1. Extract and Validate Distances
                 dimensions = {
-                    "Left Field Line": validate_distance(row.get("Left Field Line", row.get("Lef Field Line")), "Left Field Line", 330),
-                    "Dead Left Field": validate_distance(row.get("Dead Left Field"), "Dead Left Field", 360),
-                    "Left Center Gap": validate_distance(row.get("Left Center Gap"), "Left Center Gap", 380),
-                    "Dead Center": validate_distance(row.get("Dead Center"), "Dead Center", 400),
-                    "Right Center Gap": validate_distance(row.get("Right Center Gap"), "Right Center Gap", 380),
-                    "Dead Right Field": validate_distance(row.get("Dead Right Field"), "Dead Right Field", 360),
-                    "Right Field Line": validate_distance(row.get("Right Field Line"), "Right Field Line", 330)
+                    "Left Field Line": validate_val(get_key(row, ["Lef Field Line", "Left Field Line"]), *dist_limits["Left Field Line"], 330),
+                    "Dead Left Field": validate_val(get_key(row, ["Dead Left Field"]), *dist_limits["Dead Left Field"], 360),
+                    "Left Center Gap": validate_val(get_key(row, ["Left Center Gap"]), *dist_limits["Left Center Gap"], 380),
+                    "Dead Center": validate_val(get_key(row, ["Dead Center"]), *dist_limits["Dead Center"], 400),
+                    "Right Center Gap": validate_val(get_key(row, ["Right Center Gap"]), *dist_limits["Right Center Gap"], 380),
+                    "Dead Right Field": validate_val(get_key(row, ["Dead Right Field"]), *dist_limits["Dead Right Field"], 360),
+                    "Right Field Line": validate_val(get_key(row, ["Right Field Line"]), *dist_limits["Right Field Line"], 330)
+                }
+
+                # 2. Extract and Validate Heights
+                heights = {
+                    "Left Field Line": validate_val(get_key(row, ["Left Field Fence", "LF Fence"]), *height_limits, 12),
+                    "Dead Left Field": validate_val(get_key(row, ["Dead Left Fence"]), *height_limits, 12),
+                    "Left Center Gap": validate_val(get_key(row, ["Left Center Fence"]), *height_limits, 12),
+                    "Dead Center": validate_val(get_key(row, ["Dead Center Fence"]), *height_limits, 12),
+                    "Right Center Gap": validate_val(get_key(row, ["Right Center Fence"]), *height_limits, 12),
+                    "Dead Right Field": validate_val(get_key(row, ["Dead Right Fence"]), *height_limits, 12),
+                    "Right Field Line": validate_val(get_key(row, ["Right Field Line Fence", "RF Fence"]), *height_limits, 12)
                 }
                 
-                self.parks[team_name] = dimensions
+                # 3. Store both dictionaries under the team's name
+                self.parks[team_name] = {"dimensions": dimensions, "heights": heights}
                 
         except Exception as e:
             print(f"  > [WARNING] Could not load 'Parks' tab. Defaulting all stadiums to standard. Error: {e}")
@@ -168,6 +185,48 @@ class SimulationEngine:
         local_weather = self.weather_system.get_game_weather(self.current_day, home_team)
         game = FullGame(away_obj, home_obj, env, weather=local_weather, career_stats=self.player_stats) 
         game.play_game()
+
+        # --- NEW: BOXSCORE GENERATOR ---
+        away_hits = game.away.stats["batting"]["H"]
+        home_hits = game.home.stats["batting"]["H"]
+        away_errors = game.away.stats["defense"]["E"]
+        home_errors = game.home.stats["defense"]["E"]
+        
+        # Calculate how many innings were actually played
+        max_innings = max(9, game.inning - 1)
+        
+        header_row = ["Team"] + [str(i) for i in range(1, max_innings + 1)] + ["R", "H", "E"]
+        
+        # Format Away Line
+        away_row = [away_team] + [str(x) if x is not None else "-" for x in game.away.linescore]
+        while len(away_row) <= max_innings: away_row.append("-")
+        away_row += [str(game.away.stats["batting"]["R"]), str(away_hits), str(away_errors)]
+        
+        # Format Home Line
+        home_row = [home_team] + [str(x) if x is not None else "X" for x in game.home.linescore]
+        while len(home_row) <= max_innings: home_row.append("X" if len(home_row) == max_innings else "-")
+        home_row += [str(game.home.stats["batting"]["R"]), str(home_hits), str(home_errors)]
+        
+        # Extract Pitching Decisions
+        wp_name, lp_name, sv_name = "", "", ""
+        all_pitchers = game.away.used_pitchers + [game.away.pitcher] + game.home.used_pitchers + [game.home.pitcher]
+        for p in all_pitchers:
+            decision = getattr(p, 'game_decision', '')
+            if decision == "W": wp_name = p.name
+            elif decision == "L": lp_name = p.name
+            elif decision == "SV": sv_name = p.name
+            
+        decision_str = f"WP: {wp_name} | LP: {lp_name}"
+        if sv_name: decision_str += f" | SV: {sv_name}"
+
+        # Append the formatted block to our master list
+        self.boxscores.append([f"Day {self.current_day}: {away_team} at {home_team}"])
+        self.boxscores.append(header_row)
+        self.boxscores.append(away_row)
+        self.boxscores.append(home_row)
+        self.boxscores.append([decision_str])
+        self.boxscores.append([]) # Blank row for spacing
+        # -------------------------------
 
         away_runs = game.away.stats["batting"]["R"]
         home_runs = game.home.stats["batting"]["R"]
@@ -257,8 +316,11 @@ class SimulationEngine:
         hitters.sort(key=lambda x: x[0])
         lineup = [h[1] for h in hitters][:9]
         
-        park_dims = self.parks.get(team_name, None)
-        team_stadium = Stadium(name=f"{team_name} Park", custom_dimensions=park_dims)
+        park_data = self.parks.get(team_name, {})
+        park_dims = park_data.get("dimensions", None)
+        park_heights = park_data.get("heights", None)
+        
+        team_stadium = Stadium(name=f"{team_name} Park", custom_dimensions=park_dims, custom_heights=park_heights)
         
         team_obj = Team(team_name, lineup, starting_pitcher, defense, stadium=team_stadium)
         team_obj.bullpen = bullpen
@@ -375,6 +437,23 @@ class SimulationEngine:
         ws_gamelog.update('A1', gl_grid)
         time.sleep(1.5)
 
+        # --- NEW: EXPORT BOXSCORES ---
+        print("  > Updating Boxscores...")
+        try:
+            ws_box = SHEET.worksheet("BoxScores")
+            if self.boxscores:
+                max_len = max(len(row) for row in self.boxscores)
+                uniform_boxscores = []
+                for row in self.boxscores:
+                    padded_row = row + [""] * (max_len - len(row))
+                    uniform_boxscores.append(padded_row)
+                    
+                ws_box.clear()
+                ws_box.update('A1', uniform_boxscores)
+            time.sleep(1.5)
+        except Exception as e:
+            print(f"  > [WARNING] Could not update 'Boxscores' tab. Did you create it? Error: {e}")
+
         print("  > Updating Player Stats...")
         ws_stats = SHEET.worksheet("Stats")
         stat_headers = ["ID", "Name", "Team", "Pos", "G", "AB", "H", "HR", "RBI", "R", "AVG", "IP", "ER", "K", "BB", "ERA"]
@@ -418,20 +497,7 @@ class SimulationEngine:
         if is_bye:
             print(f"\n[LEAGUE BYE DAY] All teams are resting and recovering stamina.")
         else:
-            # --- NEW: Generate today's weather across the league ---
             self.weather_system.generate_daily_weather(self.current_day, self.teams)
-            
-            matchups = self.get_schedule_for_day(self.current_day)
-            for away, home in matchups:
-                self.simulate_game(away, home)
-            self.current_day += 1
-        self.export_all()
-
-    def _run_daily_slate(self, is_bye):
-        self.recover_daily_stamina()
-        if is_bye:
-            print(f"\n[LEAGUE BYE DAY] All teams are resting and recovering stamina.")
-        else:
             matchups = self.get_schedule_for_day(self.current_day)
             for away, home in matchups:
                 self.simulate_game(away, home)
