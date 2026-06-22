@@ -228,47 +228,49 @@ class Player:
         self.age += 1
 
         total_initial_stats = self.get_total_stat_sum()
+        last_peak = self.attributes.get('development', {}).get('last_peak_age', 32)
 
-        if self.age <= self.peak_age:
-            pass # Normal growth phase
-        elif self.age <= self.attributes.get('development', {}).get('last_peak_age', 32):
-            self.apply_degradation_pass(mode="slow")
-        else:
-            self.apply_degradation_pass(mode="fast")
-            
-        if self.age > 41:
-            self.apply_degradation_pass(mode="cliff")
+        # If they have passed their absolute peak, run the degradation math on every sub-stat
+        if self.age > last_peak:
+            for cat in ["batting", "pitching", "defense", "baserunning"]:
+                for stat_name, current_val in self.attributes.get(cat, {}).items():
+                    if stat_name in ["stamina", "max_stamina"]: continue
+                    
+                    new_val = self.attempt_stat_degradation(current_val, self.age, last_peak)
+                    self.attributes[cat][stat_name] = new_val
 
+        # RETIREMENT CHECK
         current_stat_sum = self.get_total_stat_sum()
         degradation_pct = 1.0 - (current_stat_sum / max(1, total_initial_stats))
         
         if degradation_pct >= 0.20:
             is_on_contract = (team and self in team.roster and getattr(self, 'contract_years_remaining', 0) > 0)
             if not is_on_contract:
-                print(f"  [RETIREMENT] {self.name} is contemplating retirement after a 20% decline.")
+                print(f"  [RETIREMENT] {self.name} is contemplating retirement after a 20% career decline.")
                 self.check_retirement(overall_rating=current_stat_sum/19, is_free_agent=True)
-                
-        if self.age > self.peak_age:
-            for category in ["batting", "pitching", "baserunning", "defense"]:
-                for stat_name, current_val in self.attributes.get(category, {}).items():
-                    if stat_name in ["stamina", "max_stamina"]: continue
-                    self.attributes[category][stat_name] = self.apply_physical_degradation(category, stat_name, current_val)
 
-    def apply_degradation_pass(self, mode):
-        multipliers = {"slow": 0.05, "fast": 0.12, "cliff": 0.25}
-        rate = multipliers.get(mode, 0.05)
-        
-        for cat in ["batting", "pitching", "defense", "baserunning"]:
-            for stat in self.attributes.get(cat, {}):
-                if stat in ["stamina", "max_stamina"]: continue
-                self.attributes[cat][stat] = int(self.attributes[cat][stat] * (1 - rate))
 
-    def apply_physical_degradation(self, category, stat_name, current_val):
-        physical_stats = ["strength", "bat_speed", "sprint_speed", "def.range", "def.reaction", "def.ArmStr", "arm_speed", "spin_rate"]
-        is_physical = stat_name in physical_stats
+    def attempt_stat_degradation(self, current_stat, age, last_peak_age):
+        """Probability-based decline engine mirroring attempt_stat_growth."""
+        if age <= last_peak_age: 
+            return current_stat
+
+        # THE CLIFF: Age 37+ (Automatic 1-6 point drop)
+        if age >= 37:
+            return max(1, current_stat - random.randint(1, 6))
+
+        # THE TWILIGHT: Between end of peak and age 36
+        years_past_peak = age - last_peak_age
         
-        decline_amount = random.randint(2, 4) if is_physical else random.randint(0, 2)
-        return max(1, current_val - decline_amount)
+        # Base probability is 30%, increasing slightly as the gap widens
+        decline_prob = 30.0 + (years_past_peak * 4.0) 
+
+        # Roll to see if degradation hits this specific sub-stat this year
+        if random.uniform(0, 100) <= decline_prob:
+            # Random drop of 0 to 5 points (0 means they rolled degradation but got lucky)
+            return max(1, current_stat - random.randint(0, 5))
+            
+        return current_stat
 
     def check_retirement(self, overall_rating, is_free_agent=False):
         if self.is_retired: return True
@@ -311,10 +313,10 @@ class Player:
         final_prob = base_growth_chance * age_multiplier
 
         if random.uniform(0, 100) <= final_prob:
-            if random.uniform(0, 100) < 8.0: 
-                return min(99, current_stat + random.randint(3, 5))
+            if random.uniform(0, 100) < 22.0: 
+                return min(99, current_stat + random.randint(3, 9))
             else:
-                return min(99, current_stat + random.randint(1, 3))
+                return min(99, current_stat + random.randint(1, 6))
         return current_stat
 
     def evaluate_minor_league_season(self):
