@@ -6,7 +6,7 @@ class HalfInning:
     Manages the game state for a single half-inning. 
     Tracks bases, outs, runs, and routes the At-Bat outcomes.
     """
-    def __init__(self, batting_team, fielding_team, league_env, inning_num, is_top, away_score, home_score, scoring_plays, game_instance=None):
+    def __init__(self, batting_team, fielding_team, league_env, inning_num, is_top, away_score, home_score, scoring_plays, game_instance=None, weather=None):
         self.batting_team = batting_team
         self.fielding_team = fielding_team
         self.env = league_env
@@ -16,12 +16,29 @@ class HalfInning:
         self.home_score = home_score
         self.scoring_plays = scoring_plays 
         self.game_instance = game_instance 
+        self.weather = weather if weather else {"temp": 70, "wind_speed": 0, "wind_direction": "Calm", "precipitation": "None"}
         self.pitcher = fielding_team.pitcher
         self.defense = fielding_team.defense
         self.outs = 0
         self.runs = 0
         self.bases = {1: None, 2: None, 3: None}
         self.errors_in_inning = 0
+
+    # --- PHASE 3: LIVE MILESTONE CHECKER ---
+    def check_in_game_milestone(self, player, stat_type, game_stat_value):
+        """Intercepts a stat increase and checks against the pre-game career context."""
+        if not hasattr(player, 'career_context'): return None
+        
+        career_total = player.career_context.get(stat_type, 0) + game_stat_value
+        
+        if stat_type == "HR" and career_total > 0 and career_total % 100 == 0:
+            return f"*** CAREER MILESTONE! {player.name} hits Career Home Run #{career_total}! ***"
+        elif stat_type == "H" and career_total > 0 and career_total % 500 == 0:
+            return f"*** CAREER MILESTONE! {player.name} collects Career Hit #{career_total}! ***"
+        elif stat_type == "K" and career_total > 0 and career_total % 1000 == 0:
+            return f"*** CAREER MILESTONE! {player.name} strikes out his {career_total}th career batter! ***"
+            
+        return None
 
     def play(self):
         """The main loop that runs until 3 outs are recorded or a walk-off occurs."""
@@ -72,7 +89,8 @@ class HalfInning:
             p_bat = batter.stats["batting"]
             p_pit = self.pitcher.stats["pitching"]
             
-            sim = AtBatSimulator(batter, self.pitcher, league_env=self.env, half_inning=self, is_home_batting=not self.is_top)
+            # --- WEATHER INJECTED INTO ENGINE ---
+            sim = AtBatSimulator(batter, self.pitcher, league_env=self.env, half_inning=self, is_home_batting=not self.is_top, weather=self.weather)
             outcome = sim.simulate_at_bat(defense=self.defense)
             event = outcome.get("event")
 
@@ -110,6 +128,11 @@ class HalfInning:
                 t_bat["K"] += 1; p_bat["K"] += 1
                 t_pit["K"] += 1; p_pit["K"] += 1
                 print(f"  Result: Strikeout.")
+                
+                # Check for Pitcher Strikeout Milestone
+                milestone = self.check_in_game_milestone(self.pitcher, "K", p_pit["K"])
+                if milestone: print(f"  {milestone}")
+                
                 self.record_fielding_stat("C", "PO")
                 self.record_out()
                 
@@ -135,6 +158,10 @@ class HalfInning:
                         t_bat["1B"] += 1; p_bat["1B"] += 1
                         t_bat["H"] += 1; p_bat["H"] += 1
                         t_pit["H"] += 1; p_pit["H"] += 1
+                        
+                        milestone = self.check_in_game_milestone(batter, "H", p_bat["H"])
+                        if milestone: print(f"  {milestone}")
+                        
                 else:
                     if not outcome["safe"]:
                         self.record_out()
@@ -155,6 +182,7 @@ class HalfInning:
                                     r_speed = runner.attributes.get('baserunning', {}).get('sprint_speed', 75)
                                     print(f"  > {runner.name} tags up from third!")
                                     
+                                    # --- WEATHER INJECTED INTO TAG-UP CALC ---
                                     tag = sim.resolve_tag_up(r_speed, f_arm_str, distance, "Home", location)
                                     if tag["safe"]:
                                         print(f"  > {tag['reason']}")
@@ -190,6 +218,13 @@ class HalfInning:
                             t_bat["H"] += 1; p_bat["H"] += 1
                             t_pit["H"] += 1; p_pit["H"] += 1
                             t_pit["HR"] += 1; p_pit["HR"] += 1
+                            
+                            # Check Hit and HR Milestones
+                            milestone_h = self.check_in_game_milestone(batter, "H", p_bat["H"])
+                            if milestone_h: print(f"  {milestone_h}")
+                            milestone_hr = self.check_in_game_milestone(batter, "HR", p_bat["HR"])
+                            if milestone_hr: print(f"  {milestone_hr}")
+                            
                             self.clear_bases_for_home_run(batter)
                             
                         elif outcome.get("error"):
@@ -204,6 +239,9 @@ class HalfInning:
                             t_bat[hit_type] += 1; p_bat[hit_type] += 1
                             t_bat["H"] += 1; p_bat["H"] += 1
                             t_pit["H"] += 1; p_pit["H"] += 1
+                            
+                            milestone = self.check_in_game_milestone(batter, "H", p_bat["H"])
+                            if milestone: print(f"  {milestone}")
                             
                             hit_location = outcome.get("location", "Center")
                             self.process_hit_advancement(batter, hit_type, hit_location)
@@ -321,7 +359,9 @@ class HalfInning:
                 runner_sprint = runner.attributes.get('baserunning', {}).get('sprint_speed', 75)
                 
                 print(f"  > {runner.name} rounds third, heading for home!")
-                sim = AtBatSimulator(batter, self.pitcher, league_env=self.env, half_inning=self, is_home_batting=not self.is_top)
+                
+                # --- WEATHER INJECTED INTO EXTRA BASE ATTEMPTS ---
+                sim = AtBatSimulator(batter, self.pitcher, league_env=self.env, half_inning=self, is_home_batting=not self.is_top, weather=self.weather)
                 outcome = sim.resolve_extra_base_attempt(runner_sprint, fielder_arm_str, fielder_arm_acc, hit_location, "Home")
                 
                 if outcome["safe"]:
@@ -346,7 +386,7 @@ class HalfInning:
                 runner_sprint = runner.attributes.get('baserunning', {}).get('sprint_speed', 75)
                 
                 print(f"  > {runner.name} challenges the arm, heading for home!")
-                sim = AtBatSimulator(batter, self.pitcher, league_env=self.env, half_inning=self, is_home_batting=not self.is_top)
+                sim = AtBatSimulator(batter, self.pitcher, league_env=self.env, half_inning=self, is_home_batting=not self.is_top, weather=self.weather)
                 outcome = sim.resolve_extra_base_attempt(runner_sprint, fielder_arm_str, fielder_arm_acc, hit_location, "Home")
                 
                 if outcome["safe"]:
@@ -528,12 +568,17 @@ class HalfInning:
 
 class FullGame:
     """Manages the 9-inning game flow between two Team objects."""
-    def __init__(self, away_team, home_team, league_env):
+    
+    def __init__(self, away_team, home_team, league_env, weather=None, career_stats=None):
         self.away = away_team
         self.home = home_team
         self.env = league_env
         self.inning = 1
         self.scoring_plays = []
+        
+        # --- NEW INJECTIONS ---
+        self.weather = weather if weather else {"temp": 70, "wind_speed": 0, "wind_direction": "Calm", "precipitation": "None"}
+        self.career_stats = career_stats if career_stats else {}
         
         self.current_lead = "Tie"
         self.away_por = self.away.pitcher 
@@ -541,6 +586,15 @@ class FullGame:
         
         self.away_starter = self.away.pitcher
         self.home_starter = self.home.pitcher
+
+        # --- PHASE 3 PRE-GAME STAT LOAD ---
+        # We attach the career snapshot to each player right before the game starts
+        for team in [self.away, self.home]:
+            for player in team.lineup + [team.pitcher] + team.bullpen:
+                pid = str(player.player_id)
+                player.career_context = self.career_stats.get(pid, {
+                    "H": 0, "HR": 0, "RBI": 0, "K": 0, "W": 0, "SV": 0, "IP": 0.0
+                }).copy()
 
     def evaluate_run_scored(self, half_inning_obj):
         away_live = self.away.stats["batting"]["R"] + (half_inning_obj.runs if half_inning_obj.is_top else 0)
@@ -608,7 +662,7 @@ class FullGame:
             
             top_half = HalfInning(self.away, self.home, self.env, self.inning, True, 
                                   self.away.stats["batting"]["R"], self.home.stats["batting"]["R"], 
-                                  self.scoring_plays, self)
+                                  self.scoring_plays, self, weather=self.weather)
             top_half.play()
             
             if self.inning >= 9 and self.home.stats["batting"]["R"] > self.away.stats["batting"]["R"]:
@@ -617,7 +671,7 @@ class FullGame:
                 
             bottom_half = HalfInning(self.home, self.away, self.env, self.inning, False, 
                                      self.away.stats["batting"]["R"], self.home.stats["batting"]["R"], 
-                                     self.scoring_plays, self) 
+                                     self.scoring_plays, self, weather=self.weather) 
             bottom_half.play()
             
             self.inning += 1

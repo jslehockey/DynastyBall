@@ -342,6 +342,28 @@ class Player:
             if k_per_9 >= 9.5: bonus_rolls.extend(["arm_speed", "deception", "spin_rate", "bite"])
 
         return bonus_rolls
+    
+DEFAULT_DIMENSIONS = {
+    "Left Field Line": 340, 
+    "Dead Left Field": 360, 
+    "Left Center Gap": 380,
+    "Dead Center": 400, 
+    "Right Center Gap": 380, 
+    "Dead Right Field": 360, 
+    "Right Field Line": 340
+}
+
+class Stadium:
+    def __init__(self, name="Generic Park", custom_dimensions=None):
+        self.name = name
+        # Start with the default safety net
+        self.dimensions = DEFAULT_DIMENSIONS.copy()
+        
+        # If custom dimensions are passed (e.g., from your Google Sheets), overwrite the defaults
+        if custom_dimensions and isinstance(custom_dimensions, dict):
+            for sector, distance in custom_dimensions.items():
+                if distance and int(distance) > 0:
+                    self.dimensions[sector] = int(distance)
 
 class LeagueEnvironment:
     def __init__(self, power=1.0, contact=1.0, speed=1.0, pitching=1.0, defense=1.0, max_shift=0.015):
@@ -369,11 +391,16 @@ class LeagueEnvironment:
             self.era_modifiers[axis] = max(floor, min(ceiling, new_value))
 
 class Team:
-    def __init__(self, name, lineup, pitcher, defense, hook_threshold=5.0, adrenaline_trigger=True):
+    def __init__(self, name, lineup, pitcher, defense, stadium=None, hook_threshold=5.0, adrenaline_trigger=True):
         self.name = name
         self.lineup = lineup
         self.pitcher = pitcher
         self.defense = defense
+        
+        # --- NEW: STADIUM COMPOSITION ---
+        # If the Exporter provides a stadium, use it. If not, build a default one automatically.
+        self.stadium = stadium if stadium else Stadium(name=f"{self.name} Stadium")
+        
         self.batter_index = 0
         self.hook_threshold = hook_threshold 
         self.adrenaline_trigger = adrenaline_trigger

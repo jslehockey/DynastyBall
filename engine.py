@@ -3,7 +3,7 @@ from game_math import compress_rating, calculate_advantage_ratio, OOP_MATRIX
 from base_running import calculate_steal_success, should_attempt_steal
 
 class AtBatSimulator:
-    def __init__(self, batter, pitcher, league_env=None, half_inning=None, is_home_batting=False): 
+    def __init__(self, batter, pitcher, league_env=None, half_inning=None, is_home_batting=False, weather=None): 
         self.batter = batter
         self.pitcher = pitcher
         self.balls = 0
@@ -12,6 +12,9 @@ class AtBatSimulator:
         self.half_inning = half_inning
         self.is_home_batting = is_home_batting
         self.env = league_env.era_modifiers if league_env else {"power": 1.0, "contact": 1.0, "speed": 1.0, "pitching": 1.0, "defense": 1.0}
+        
+        # --- WEATHER INITIALIZATION ---
+        self.weather = weather if weather else {"temp": 70, "wind_speed": 0, "wind_direction": "Calm", "precipitation": "None"}
 
         # Marathon Man: Boost stamina once per game start.
         if "Marathon Man" in getattr(self.pitcher, 'traits', []) and not getattr(self.pitcher, 'marathon_boosted', False):
@@ -36,10 +39,22 @@ class AtBatSimulator:
         base_spin = p_attr.get('spin_rate', 50) * self.env["pitching"]
         base_bite = p_attr.get('bite', 50) * self.env["pitching"]
 
+        # --- WEATHER IMPACT ON BASE STATS ---
+        if self.weather["temp"] < 50:
+            base_accuracy = max(1, base_accuracy - 2)  # Cold fingers reduce control
+            base_command = max(1, base_command - 2)
+            base_strength = max(1, base_strength - 2)  # Cold deadens the ball
+        elif self.weather["temp"] > 90:
+            base_strength = min(99, base_strength + 2) # Hot air carries
+        if self.weather.get("precipitation") == "Rain":
+            rain_penalty = random.randint(2, 3)
+            base_accuracy = max(1, base_accuracy - rain_penalty) # Slippery baseball
+            base_command = max(1, base_command - rain_penalty)
+
         # --- PLATOON PUNISHER TRAIT INTEGRATION ---
         platoon_mod = -3 if self.pitcher.attributes.get('throws') == self.batter.attributes.get('bats') else 0
         if platoon_mod == 0 and "Platoon Punisher" in getattr(self.batter, 'traits', []):
-            platoon_mod += 3 # Extra boost for having the opposite-handed advantage
+            platoon_mod += 3 
 
         approach_slider = self.batter.attributes.get('strategy', {}).get('approach_slider', 0)
         attack_slider = self.pitcher.attributes.get('strategy', {}).get('attack_slider', 0)
@@ -54,11 +69,9 @@ class AtBatSimulator:
             safe_pct = max(0.0, b_stam_pct) 
             stamina_penalty = -(((40.0 - safe_pct) / 40.0) * 15.0)
 
-        # --- APPLY MOMENTUM (FORM) BONUS ---
         b_form = getattr(self.batter, 'form', 0) * 2
         p_form = getattr(self.pitcher, 'form', 0) * 2
 
-        # Final Calculation with Form + Static Trait Impacts
         self.ab_timing = base_timing + platoon_mod + stamina_penalty - approach_slider + b_form
         self.ab_barreling = base_barreling + platoon_mod + stamina_penalty - approach_slider + b_form
         self.ab_eye = base_eye + stamina_penalty - approach_slider + b_form
@@ -107,7 +120,9 @@ class AtBatSimulator:
         spin = self.apply_trait_modifiers("spin_rate", self.ab_spin + p_stamina_penalty + self.roll_rng(), True)
         bite = self.apply_trait_modifiers("bite", self.ab_bite + p_stamina_penalty + self.roll_rng(), True)
 
-        if random.uniform(0, 100) <= 0.25:
+        # Rain drastically increases wild pitch/HBP risk
+        hbp_chance = 0.50 if self.weather.get("precipitation") == "Rain" else 0.25
+        if random.uniform(0, 100) <= hbp_chance:
             return {"result": "HBP", "details": "Pitch got away and hit the batter!"}
 
         if is_bunting:
@@ -163,6 +178,10 @@ class AtBatSimulator:
                 r_base = stealing_runner.attributes.get('baserunning', {})
                 r_sprint = r_base.get('sprint_speed', 75)
                 r_instincts = r_base.get('instincts', 75)
+                
+                # --- WEATHER: RAIN MODIFIES STEAL ATTEMPTS ---
+                if self.weather.get("precipitation") == "Rain":
+                    r_sprint = max(1, r_sprint - 5) # Wet dirt slows the runner's jump
                 
                 is_safe = calculate_steal_success(r_sprint, r_instincts, c_arm_str, c_arm_acc, c_reaction, target_base)
                 
@@ -227,7 +246,13 @@ class AtBatSimulator:
     def apply_post_at_bat_pitcher_fatigue(self):
         max_stamina = self.pitcher.attributes.get('pitching', {}).get('stamina', 100)
         curr_stamina = getattr(self.pitcher, 'current_stamina', max_stamina)
-        self.pitcher.current_stamina = max(0, curr_stamina - self.pitch_count)
+        
+        drain = self.pitch_count
+        # --- WEATHER: HEAT MULTIPLIES DRAIN ---
+        if self.weather["temp"] >= 90:
+            drain *= 1.15
+            
+        self.pitcher.current_stamina = max(0, curr_stamina - drain)
 
     def simulate_at_bat(self, bunt_attempt=False, allow_2_strike_bunt=False, defense=None):
         play_log = []
@@ -236,9 +261,8 @@ class AtBatSimulator:
         while self.balls < 4 and self.strikes < 3:
             self.pitch_count += 1
 
-            # --- PITCH TO CONTACT TRAIT ---
             if "Pitch to Contact" in getattr(self.pitcher, 'traits', []) and random.uniform(0, 100) <= 10.0:
-                self.pitch_count -= 1 # 10% chance this pitch does not count against their stamina
+                self.pitch_count -= 1 
 
             pitch = self.simulate_single_pitch(is_bunting=bunt_attempt, allow_2_strike_bunt=allow_2_strike_bunt)
             
@@ -384,10 +408,16 @@ class AtBatSimulator:
         locations = ["Left Field Line", "Dead Left Field", "Left Center Gap", "Dead Center", "Right Center Gap", "Dead Right Field", "Right Field Line"]
         final_location = random.choices(locations, weights=weights, k=1)[0]
 
-        park_dimensions = {
-            "Left Field Line": 340, "Dead Left Field": 360, "Left Center Gap": 380,
-            "Dead Center": 400, "Right Center Gap": 380, "Dead Right Field": 360, "Right Field Line": 340
-        }
+        # --- DYNAMIC STADIUM DIMENSIONS HOOKUP ---
+        if self.half_inning:
+            home_team = self.half_inning.batting_team if self.is_home_batting else self.half_inning.fielding_team
+            park_dimensions = home_team.stadium.dimensions
+        else:
+            park_dimensions = {
+                "Left Field Line": 340, "Dead Left Field": 360, "Left Center Gap": 380,
+                "Dead Center": 400, "Right Center Gap": 380, "Dead Right Field": 360, "Right Field Line": 340
+            }
+        
         wall_distance = park_dimensions[final_location]
         elev = self.ab_elevation
 
@@ -410,7 +440,6 @@ class AtBatSimulator:
             trajectory = random.choices(["Ground Ball", "Pop Up", "Player-Height Line Drive"], weights=trajectory_weights)[0]
             power_transfer = 0.40
 
-        # --- TRAIT INTEGRATION: OUTCOME MODIFIERS ---
         if "Groundball Guru" in getattr(self.pitcher, 'traits', []) and trajectory in ["Over-Infield Line Drive", "Player-Height Line Drive"]:
             if random.uniform(0, 100) <= 10.0:
                 trajectory = "Ground Ball"
@@ -430,6 +459,16 @@ class AtBatSimulator:
         else: raw_distance = baseline_distance * random.uniform(0.85, 1.0)
 
         distance_with_variance = raw_distance + (self.roll_rng() * 1.5)
+
+        # --- WEATHER: WIND MODIFIER ---
+        if trajectory in ["Fly Ball", "Over-Infield Line Drive"]:
+            wind_effect = self.weather.get("wind_speed", 0) * 0.8
+            direction = self.weather.get("wind_direction", "Calm")
+            if direction == "Blowing In":
+                distance_with_variance -= wind_effect
+            elif direction == "Blowing Out":
+                distance_with_variance += wind_effect
+
         final_distance = int(max(5, min(distance_with_variance, 515)))
 
         target_position, hit_type = None, "In Play"
@@ -602,6 +641,10 @@ class AtBatSimulator:
 
         if hit_data["quality"] == "Crushed!": error_prob *= 1.5 
         if is_sprinting_catch: error_prob += 3.5 
+        
+        # --- WEATHER: RAIN INCREASES ERROR PROBABILITY ---
+        if self.weather.get("precipitation") == "Rain":
+            error_prob *= 1.045
 
         if random.uniform(0, 100) < error_prob:
             action = "dropped" if hit_data["trajectory"] in ["Fly Ball", "Pop Up"] else "booted"

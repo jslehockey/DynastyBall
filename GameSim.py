@@ -1,7 +1,7 @@
 import random
 import gspread
 import time
-from models import Player, Team, LeagueEnvironment
+from models import Player, Team, LeagueEnvironment, Stadium
 from game_flow import FullGame
 
 # --- CONFIGURATION ---
@@ -9,14 +9,92 @@ SPREADSHEET_ID = "1mC6-qF2_niu5756t5Q1yI-QJL_fZcvaF_KkOTrHX3Yc"
 CLIENT = gspread.service_account(filename='credentials.json')
 SHEET = CLIENT.open_by_key(SPREADSHEET_ID)
 
+class LeagueWeatherSystem:
+    def __init__(self):
+        self.daily_forecasts = {}
+
+    def generate_daily_weather(self, day_number, teams):
+        """Generates a unique forecast for every home stadium for the given day."""
+        self.daily_forecasts[day_number] = {}
+        for team in teams:
+            temp = random.randint(45, 95)
+            wind_speed = random.randint(0, 20)
+            wind_direction = random.choice(["Blowing In", "Blowing Out", "Crosswind Left", "Crosswind Right", "Calm"])
+            precipitation = random.choices(["None", "Rain"], weights=[85, 15])[0] # 15% chance of rain
+            
+            self.daily_forecasts[day_number][team] = {
+                "temp": temp,
+                "wind_speed": wind_speed,
+                "wind_direction": wind_direction,
+                "precipitation": precipitation
+            }
+
+    def get_game_weather(self, day_number, home_team):
+        """Fetches the specific weather for the home stadium."""
+        return self.daily_forecasts.get(day_number, {}).get(home_team, {
+            "temp": 70, "wind_speed": 0, "wind_direction": "Calm", "precipitation": "None"
+        })
+    
 class SimulationEngine:
     def __init__(self):
         self.teams = [f"Team{i}" for i in range(1, 9)]
         self.rosters = {}
+        self.parks = {} 
         self.standings = {team: {"W": 0, "L": 0, "RS": 0, "RA": 0} for team in self.teams}
         self.game_log = []
         self.player_stats = {}
         self.current_day = 0
+        self.weather_system = LeagueWeatherSystem()
+
+    def _load_stadium_dimensions(self):
+        print("  > Loading stadium dimensions from 'Parks' sheet...")
+        try:
+            park_records = SHEET.worksheet("Parks").get_all_records()
+            
+            # --- NEW: Sector-Specific Dimension Limits ---
+            limits = {
+                "Left Field Line": (300, 350),
+                "Dead Left Field": (330, 380),
+                "Left Center Gap": (350, 400),
+                "Dead Center": (380, 420),
+                "Right Center Gap": (350, 400),
+                "Dead Right Field": (330, 380),
+                "Right Field Line": (300, 350)
+            }
+            
+            # Updated validator to check against the specific sector limits
+            def validate_distance(value, sector, default):
+                min_dist, max_dist = limits[sector]
+                try:
+                    dist = int(value)
+                    if min_dist <= dist <= max_dist:
+                        return dist
+                    else:
+                        print(f"    [WARNING] {sector} dimension {dist} out of bounds ({min_dist}-{max_dist}). Defaulting to {default}.")
+                        return default
+                except (ValueError, TypeError):
+                    return default
+
+            for row in park_records:
+                team_name = row.get("Team")
+                if not team_name: 
+                    continue
+
+                # Safely parse, passing the sector name for precise validation
+                dimensions = {
+                    "Left Field Line": validate_distance(row.get("Left Field Line", row.get("Lef Field Line")), "Left Field Line", 330),
+                    "Dead Left Field": validate_distance(row.get("Dead Left Field"), "Dead Left Field", 360),
+                    "Left Center Gap": validate_distance(row.get("Left Center Gap"), "Left Center Gap", 380),
+                    "Dead Center": validate_distance(row.get("Dead Center"), "Dead Center", 400),
+                    "Right Center Gap": validate_distance(row.get("Right Center Gap"), "Right Center Gap", 380),
+                    "Dead Right Field": validate_distance(row.get("Dead Right Field"), "Dead Right Field", 360),
+                    "Right Field Line": validate_distance(row.get("Right Field Line"), "Right Field Line", 330)
+                }
+                
+                self.parks[team_name] = dimensions
+                
+        except Exception as e:
+            print(f"  > [WARNING] Could not load 'Parks' tab. Defaulting all stadiums to standard. Error: {e}")
 
     def load_state(self):
         print("Loading current game state from Sheets...")
@@ -40,6 +118,8 @@ class SimulationEngine:
                     "G": 0, "AB": 0, "H": 0, "HR": 0, "RBI": 0, "R": 0, "AVG": ".000",
                     "IP": 0, "ER": 0, "K": 0, "BB": 0, "ERA": "0.00"
                 }
+
+        self._load_stadium_dimensions()
 
         try:
             stats_records = SHEET.worksheet("Stats").get_all_records()
@@ -85,7 +165,8 @@ class SimulationEngine:
         home_obj = self._build_team_object(home_team, home_sp_role)
 
         env = LeagueEnvironment()
-        game = FullGame(away_obj, home_obj, env)
+        local_weather = self.weather_system.get_game_weather(self.current_day, home_team)
+        game = FullGame(away_obj, home_obj, env, weather=local_weather, career_stats=self.player_stats) 
         game.play_game()
 
         away_runs = game.away.stats["batting"]["R"]
@@ -152,13 +233,11 @@ class SimulationEngine:
                 "current_scoreless_outs": int(row.get("Cur Scoreless Outs", 0) or 0),
                 "longest_scoreless_outs": int(row.get("Max Scoreless Outs", 0) or 0),
                 "recent_form": str(row.get("Recent Form", "")),
-                # --- NEW: LOAD TRAITS FROM THE 3 COLUMNS ---
                 "traits": [t.strip() for t in [str(row.get("Trait1", "")), str(row.get("Trait2", "")), str(row.get("Trait3", ""))] if t.strip() and t.strip() != "-"]
             }
             
             player = Player(row["ID"], row["Name"], attributes)
             
-            # Safely pass traits directly into the player object as a top-level attribute for easy access
             player.traits = attributes["traits"]
             player.current_stamina = int(row.get("Cur Stam", 0) or 0)
             
@@ -177,7 +256,11 @@ class SimulationEngine:
 
         hitters.sort(key=lambda x: x[0])
         lineup = [h[1] for h in hitters][:9]
-        team_obj = Team(team_name, lineup, starting_pitcher, defense)
+        
+        park_dims = self.parks.get(team_name, None)
+        team_stadium = Stadium(name=f"{team_name} Park", custom_dimensions=park_dims)
+        
+        team_obj = Team(team_name, lineup, starting_pitcher, defense, stadium=team_stadium)
         team_obj.bullpen = bullpen
         return team_obj
 
@@ -244,27 +327,22 @@ class SimulationEngine:
     def recover_daily_stamina(self):
         for roster in self.rosters.values():
             for player in roster:
-                # 1. Extract the traits from the raw sheet dictionary
                 traits = [
                     str(player.get("Trait1", "")), 
                     str(player.get("Trait2", "")), 
                     str(player.get("Trait3", ""))
                 ]
                 
-                # 2. Check for Rubber Arm and assign recovery amount
                 recovery_amount = 27 if "Rubber Arm" in traits else 20
                 
-                # 3. Apply the math safely using integers
                 max_stam = int(player.get("Max Stam", 100))
                 cur_stam = int(player.get("Cur Stam", 100))
                 
                 player["Cur Stam"] = min(max_stam, cur_stam + recovery_amount)
 
     def export_all(self):
-        """Flattens all persistent memory states and overwrites Google Sheets with strict API pacing."""
         print("Exporting updated rosters, stats, and standings back to Google Sheets...")
         
-        # 1. ROSTERS & FATIGUE
         for team_name, roster in self.rosters.items():
             ws = SHEET.worksheet(team_name)
             if not roster: 
@@ -276,12 +354,10 @@ class SimulationEngine:
                 row = [player.get(h, "") for h in headers]
                 grid.append(row)
                 
-            # Use a single update call to cut API requests in half
             ws.update('A1', grid)
             print(f"  > Updated {team_name} fatigue levels.")
-            time.sleep(1.5)  # Micro-pacing to prevent Google 429 Rate Limits
+            time.sleep(1.5)  
 
-        # 2. STANDINGS
         print("  > Updating Standings...")
         ws_standings = SHEET.worksheet("Standings")
         std_grid = [["Team", "W", "L", "RS", "RA"]]
@@ -293,24 +369,20 @@ class SimulationEngine:
         ws_standings.update('A1', std_grid)
         time.sleep(1.5)
 
-        # 3. GAME LOG
         print("  > Updating GameLog...")
         ws_gamelog = SHEET.worksheet("GameLog")
         gl_grid = [["Away Team", "Away Score", "Away W/L", "Home Team", "Home Score", "Home W/L"]] + self.game_log
         ws_gamelog.update('A1', gl_grid)
         time.sleep(1.5)
 
-        # 4. PLAYER STATS
         print("  > Updating Player Stats...")
         ws_stats = SHEET.worksheet("Stats")
         stat_headers = ["ID", "Name", "Team", "Pos", "G", "AB", "H", "HR", "RBI", "R", "AVG", "IP", "ER", "K", "BB", "ERA"]
         stat_grid = [stat_headers]
         
         for pid, s in self.player_stats.items():
-            # --- NEW: SKIP INACTIVE PLAYERS ---
             if s.get("G", 0) == 0 and s.get("AB", 0) == 0 and s.get("IP", 0) == 0:
                 continue 
-            # ----------------------------------
 
             if s["AB"] > 0:
                 avg = s["H"] / s["AB"]
@@ -328,21 +400,32 @@ class SimulationEngine:
                 s["RBI"], s["R"], s["AVG"], round(s["IP"], 1), s["ER"], s["K"], s["BB"], s["ERA"]
             ])
             
-        # --- NEW: CLEAR GHOST DATA BEFORE WRITING ---
         ws_stats.clear()
         ws_stats.update('A1', stat_grid)
         
         print("✅ Master Export complete! All tabs are synced.")
 
-    # --- SIM-STATE CONTROLLERS ---
     def get_current_sim_block(self):
-        """Calculates the current SimState Block (1-27) based on max games played."""
         max_games_played = max((team["W"] + team["L"]) for team in self.standings.values())
         if max_games_played < 28: return (max_games_played // 4) + 1
         elif max_games_played < 61: return 7 + ((max_games_played - 28) // 3) + 1
         elif max_games_played < 89: return 18 + ((max_games_played - 61) // 4) + 1
-        elif max_games_played >= 89 and max_games_played < 93: return 26 # Playoffs
-        else: return 27 # Offseason
+        elif max_games_played >= 89 and max_games_played < 93: return 26
+        else: return 27
+
+    def _run_daily_slate(self, is_bye):
+        self.recover_daily_stamina()
+        if is_bye:
+            print(f"\n[LEAGUE BYE DAY] All teams are resting and recovering stamina.")
+        else:
+            # --- NEW: Generate today's weather across the league ---
+            self.weather_system.generate_daily_weather(self.current_day, self.teams)
+            
+            matchups = self.get_schedule_for_day(self.current_day)
+            for away, home in matchups:
+                self.simulate_game(away, home)
+            self.current_day += 1
+        self.export_all()
 
     def _run_daily_slate(self, is_bye):
         self.recover_daily_stamina()
@@ -363,7 +446,6 @@ class SimulationEngine:
         series_a_scores = {seed1: [], seed4: []}
         series_b_scores = {seed2: [], seed3: []}
         
-        # --- SEMIFINALS ---
         for day in range(1, 5):
             self.recover_daily_stamina()
             if day == 4:
@@ -371,17 +453,15 @@ class SimulationEngine:
                 break
                 
             games_played_today = False
-            # Series A (1 vs 4)
             if len(series_a_scores[seed1]) < 3 and series_a_scores[seed1].count("W") < 2 and series_a_scores[seed4].count("W") < 2:
                 games_played_today = True
                 away = seed4 if day in [1, 3] else seed1
                 home = seed1 if day in [1, 3] else seed4
                 self.simulate_game(away, home)
-                last_game = self.game_log[-1] # [AwayTeam, AwayRuns, AwayWL, HomeTeam, HomeRuns, HomeWL]
+                last_game = self.game_log[-1] 
                 series_a_scores[away].append(last_game[1])
                 series_a_scores[home].append(last_game[4])
                 
-            # Series B (2 vs 3)
             if len(series_b_scores[seed2]) < 3 and series_b_scores[seed2].count("W") < 2 and series_b_scores[seed3].count("W") < 2:
                 games_played_today = True
                 away = seed3 if day in [1, 3] else seed2
@@ -401,7 +481,6 @@ class SimulationEngine:
         low_seed = adv_b if high_seed == adv_a else adv_a
         finals_scores = {high_seed: [], low_seed: []}
 
-        # --- FINALS ---
         for day in range(1, 5):
             self.recover_daily_stamina()
             if day == 4:
@@ -419,7 +498,6 @@ class SimulationEngine:
             else:
                 break
                 
-        # Export the bracket directly to Google Sheets
         self._export_playoff_bracket(series_a_scores, series_b_scores, finals_scores)
 
     def _export_playoff_bracket(self, a_scores, b_scores, f_scores):
@@ -453,12 +531,10 @@ class SimulationEngine:
         
         for team_name, roster in self.rosters.items():
             for flat_player in roster:
-                # Rebuild player object to use their methods
                 player_obj = self._build_team_object(team_name, "SP1").defense.get(flat_player.get("Game Pos", "DH"))
                 if not player_obj: 
                     player_obj = Player(flat_player["ID"], flat_player["Name"], {"development": {"age": flat_player["Age"], "peak_age": 27}, "batting": {}, "pitching": {}, "defense": {}, "baserunning": {}})
                 
-                # Copy flat stats into the object for math
                 for cat in ["Con.Timing", "Con.Barrel", "Pow.Str", "Pow.BatSpd", "Pow.Elev", "Disc.Eye", "Disc.Restr"]:
                     player_obj.attributes["batting"][cat.split(".")[1].lower()] = flat_player.get(cat, 0)
                 for cat in ["Vel.ArmSpd", "Vel.Decept", "Ctrl.Acc", "Ctrl.Cmd", "Mov.Spin", "Mov.Bite"]:
@@ -466,11 +542,9 @@ class SimulationEngine:
                 for cat in ["def.Range", "Def.React", "Def.Glove", "Def.ArmStr", "Def.ArmAcc"]:
                     player_obj.attributes["defense"][cat.lower()] = flat_player.get(cat, 0)
                 
-                # Apply aging math
                 player_obj.process_offseason_aging()
                 flat_player["Age"] += 1
                 
-                # Map back the aged stats
                 for cat, key in [("Con.Timing", "timing"), ("Con.Barrel", "barreling"), ("Pow.Str", "strength"), ("Pow.BatSpd", "bat_speed"), ("Pow.Elev", "elevation"), ("Disc.Eye", "eye"), ("Disc.Restr", "restraint")]:
                     flat_player[cat] = player_obj.attributes["batting"].get(key, flat_player.get(cat))
                 for cat, key in [("Vel.ArmSpd", "arm_speed"), ("Vel.Decept", "deception"), ("Ctrl.Acc", "accuracy"), ("Ctrl.Cmd", "command"), ("Mov.Spin", "spin_rate"), ("Mov.Bite", "bite")]:
@@ -480,7 +554,6 @@ class SimulationEngine:
         self.generate_draft_class()
         print("✅ Offseason complete! Ready for next season.")
 
-    
     def generate_draft_class(self):
         print("\n🧬 GENERATING NEW DRAFT CLASS...")
         ws = SHEET.worksheet("Draft Class")
@@ -506,41 +579,34 @@ class SimulationEngine:
             name = f"{random.choice(first_names)} {random.choice(last_names)}"
             pid = f"2027{str(i).zfill(8)}"
         
-            # --- NESTED TRAIT GENERATION LOGIC ---
             player_traits = []
             available_traits = pitching_traits.copy() if pos == "P" else hitting_traits.copy()
         
-            # 60% chance for 1st trait
             if random.uniform(0, 100) <= 60.0:
                 t1 = random.choice(available_traits)
                 player_traits.append(t1)
                 available_traits.remove(t1)
             
-                # 25% chance for 2nd trait (Nested)
                 if random.uniform(0, 100) <= 25.0:
                     t2 = random.choice(available_traits)
                     player_traits.append(t2)
                     available_traits.remove(t2)
                 
-                    # 10% chance for 3rd trait (Nested)
                     if random.uniform(0, 100) <= 10.0:
                         t3 = random.choice(available_traits)
                         player_traits.append(t3)
         
-        # Fill placeholders for the spreadsheet columns
-        t1_col = player_traits[0] if len(player_traits) > 0 else "-"
-        t2_col = player_traits[1] if len(player_traits) > 1 else "-"
-        t3_col = player_traits[2] if len(player_traits) > 2 else "-"
-        t_count = len(player_traits)
-        
-        # Stats and Stamina
-        stats = [random.randint(35, 65) for _ in range(20)]
-        stam = random.randint(80, 100) if pos == "P" else 100
-        
-        # Build the final row
-        row = [pid, name, pos, age, "Rookie", t1_col, t2_col, t3_col, t_count] + stats + [stam, stam]
-        grid.append(row)
-        
+            t1_col = player_traits[0] if len(player_traits) > 0 else "-"
+            t2_col = player_traits[1] if len(player_traits) > 1 else "-"
+            t3_col = player_traits[2] if len(player_traits) > 2 else "-"
+            t_count = len(player_traits)
+            
+            stats = [random.randint(35, 65) for _ in range(20)]
+            stam = random.randint(80, 100) if pos == "P" else 100
+            
+            row = [pid, name, pos, age, "Rookie", t1_col, t2_col, t3_col, t_count] + stats + [stam, stam]
+            grid.append(row)
+            
         ws.append_rows(grid)
         print("✅ 50 Prospects (with Traits!) exported to 'Draft Class' tab!")
 
@@ -569,7 +635,6 @@ class SimulationEngine:
         else:
             print("\nSeason has fully concluded. Please reset your Standings to start a new year.")
 
-
 def run_live_test_environment():
     print("⚾ BASEBALL FRANCHISE CLI ⚾")
     engine = SimulationEngine()
@@ -578,7 +643,6 @@ def run_live_test_environment():
     current_block = engine.get_current_sim_block()
     print(f"\n✅ Ready to manually trigger Sim-State Block {current_block}")
     
-    # Simple Manual Trigger. Press Enter to do exactly ONE block and stop.
     input("\nPress ENTER to run the current block (or CTRL+C to quit)...")
     engine.simulate_next_block()
     print("\n🏁 Block complete. Run the script again when you are ready for the next block.")
