@@ -3,6 +3,7 @@ import gspread
 import time
 from models import Player, Team, LeagueEnvironment, Stadium
 from game_flow import FullGame
+from recordBook import RecordBook
 
 # --- CONFIGURATION ---
 SPREADSHEET_ID = "1mC6-qF2_niu5756t5Q1yI-QJL_fZcvaF_KkOTrHX3Yc"
@@ -113,6 +114,39 @@ class SimulationEngine:
         except Exception as e:
             print(f"  > [WARNING] Could not load 'Parks' tab. Defaulting all stadiums to standard. Error: {e}")
 
+    def log_season_history(self, season_id):
+        """Sweeps player stats at the end of the year and appends to historical log."""
+        print(f"\n  > Archiving Season {season_id} transactional stats to 'StatLog'...")
+        try:
+            stat_log_ws = SHEET.worksheet("StatLog")
+        except gspread.exceptions.WorksheetNotFound:
+            print("  [ERROR] 'StatLog' tab not found in Google Sheets! Please create it.")
+            return
+        
+        new_history_rows = []
+        
+        for team_name in self.teams:
+            current_tier = 1 # We can dynamically set this later based on your promotion logic
+            
+            for player in self.rosters.get(team_name, []):
+                pid = str(player["ID"])
+                s = self.player_stats.get(pid)
+                
+                # Skip players who didn't accumulate stats
+                if not s or (s.get("AB", 0) == 0 and s.get("IP", 0) == 0):
+                    continue 
+                
+                row = [
+                    season_id, pid, player["Name"], team_name, current_tier, player["Pos"],
+                    s.get("G", 0), s.get("AB", 0), s.get("H", 0), s.get("HR", 0), s.get("RBI", 0), s.get("R", 0),
+                    s.get("IP", 0), s.get("ER", 0), s.get("K", 0), s.get("BB", 0)
+                ]
+                new_history_rows.append(row)
+                
+        if new_history_rows:
+            stat_log_ws.append_rows(new_history_rows)
+            print(f"  ✅ Successfully archived {len(new_history_rows)} player history entries.")
+    
     def load_state(self):
         print("Loading current game state from Sheets...")
         for team in self.teams:
@@ -139,10 +173,10 @@ class SimulationEngine:
         self._load_stadium_dimensions()
 
         try:
-            stats_records = SHEET.worksheet("Stats").get_all_records()
-            for r in stats_records:
-                self.player_stats[str(r["ID"])] = r
-        except Exception: pass
+            stat_log_records = SHEET.worksheet("Stats").get_all_records()
+        except Exception: 
+            stat_log_records = []
+        self.record_book = RecordBook(stat_log_records)
 
         try:
             std_records = SHEET.worksheet("Standings").get_all_records()
@@ -181,9 +215,18 @@ class SimulationEngine:
         away_obj = self._build_team_object(away_team, away_sp_role)
         home_obj = self._build_team_object(home_team, home_sp_role)
 
+        away_hr_record = self.record_book.get_franchise_records(away_team, "HR", record_type="season", limit=1)
+        home_hr_record = self.record_book.get_franchise_records(home_team, "HR", record_type="season", limit=1)
+        
+        target_hr_away = away_hr_record[0][3] if away_hr_record else 0
+        target_hr_home = home_hr_record[0][3] if home_hr_record else 0
+
         env = LeagueEnvironment()
         local_weather = self.weather_system.get_game_weather(self.current_day, home_team)
-        game = FullGame(away_obj, home_obj, env, weather=local_weather, career_stats=self.player_stats) 
+        game = FullGame(
+            away_obj, home_obj, env, weather=local_weather, career_stats=self.player_stats, 
+            hr_record_target_away=target_hr_away, hr_record_target_home=target_hr_home
+        )
         game.play_game()
 
         # --- NEW: BOXSCORE GENERATOR ---
@@ -194,7 +237,6 @@ class SimulationEngine:
         
         # Calculate how many innings were actually played
         max_innings = max(9, game.inning - 1)
-        
         header_row = ["Team"] + [str(i) for i in range(1, max_innings + 1)] + ["R", "H", "E"]
         
         # Format Away Line
@@ -209,7 +251,7 @@ class SimulationEngine:
         
         # Extract Pitching Decisions
         wp_name, lp_name, sv_name = "", "", ""
-        all_pitchers = game.away.used_pitchers + [game.away.pitcher] + game.home.used_pitchers + [game.home.pitcher]
+        all_pitchers = game.away.game_pitchers + game.home.game_pitchers
         for p in all_pitchers:
             decision = getattr(p, 'game_decision', '')
             if decision == "W": wp_name = p.name
@@ -219,13 +261,75 @@ class SimulationEngine:
         decision_str = f"WP: {wp_name} | LP: {lp_name}"
         if sv_name: decision_str += f" | SV: {sv_name}"
 
-        # Append the formatted block to our master list
-        self.boxscores.append([f"Day {self.current_day}: {away_team} at {home_team}"])
-        self.boxscores.append(header_row)
-        self.boxscores.append(away_row)
-        self.boxscores.append(home_row)
-        self.boxscores.append([decision_str])
-        self.boxscores.append([]) # Blank row for spacing
+        # 1. Build Boxscore array locally first (LEFT SIDE)
+        game_box = []
+        game_box.append([f"Day {self.current_day}: {away_team} at {home_team}"])
+        game_box.append(header_row)
+        game_box.append(away_row)
+        game_box.append(home_row)
+        game_box.append([decision_str])
+        game_box.append([]) 
+
+        game_box.append(["--- BATTING ---"])
+        game_box.append([f"{away_team} Hitters", "AB", "R", "H", "HR", "RBI", "BB", "K"])
+        for p in game.away.lineup:
+            b = p.stats["batting"]
+            game_box.append([p.name, b["AB"], b["R"], b["H"], b["HR"], b["RBI"], b["BB"], b["K"]])
+            
+        game_box.append([])
+        game_box.append([f"{home_team} Hitters", "AB", "R", "H", "HR", "RBI", "BB", "K"])
+        for p in game.home.lineup:
+            b = p.stats["batting"]
+            game_box.append([p.name, b["AB"], b["R"], b["H"], b["HR"], b["RBI"], b["BB"], b["K"]])
+
+        game_box.append([])
+
+        game_box.append(["--- PITCHING ---"])
+        game_box.append([f"{away_team} Pitchers", "IP", "H", "R", "ER", "BB", "K", "HR", "Pitches"])
+        for p in game.away.game_pitchers:
+            pit = p.stats["pitching"]
+            outs = pit["Outs"]
+            ip_str = f"{outs // 3}.{outs % 3}"
+            game_box.append([p.name, ip_str, pit["H"], pit["R"], pit["ER"], pit["BB"], pit["K"], pit["HR"], pit["Pitches"]])
+
+        game_box.append([])
+        game_box.append([f"{home_team} Pitchers", "IP", "H", "R", "ER", "BB", "K", "HR", "Pitches"])
+        for p in game.home.game_pitchers:
+            pit = p.stats["pitching"]
+            outs = pit["Outs"]
+            ip_str = f"{outs // 3}.{outs % 3}"
+            game_box.append([p.name, ip_str, pit["H"], pit["R"], pit["ER"], pit["BB"], pit["K"], pit["HR"], pit["Pitches"]])
+
+        # 2. Build Event Log locally (RIGHT SIDE)
+        post_game_milestones = game.check_milestones()
+        for m in post_game_milestones:
+            game.game_events.append(["Final", "End", "League", "Game Milestone", "Team/Staff", m])
+
+        event_log = [["--- NOTABLE GAME EVENTS ---"]]
+        event_log.append(["Inning", "Half", "Team", "Event Type", "Player", "Play Description"])
+        
+        if not game.game_events:
+            event_log.append(["", "", "", "No notable events recorded.", "", ""])
+        else:
+            for event in game.game_events:
+                event_log.append(event)
+                
+        # 3. Merge Left and Right side-by-side
+        max_rows = max(len(game_box), len(event_log))
+        
+        # Dynamic padding calculation based on extra innings
+        # Boxscore needs 1 (Team) + max_innings + 3 (R/H/E) columns, plus 2 spacer columns
+        pad_width = max(max_innings + 4, 11) + 2
+        
+        for i in range(max_rows):
+            left_row = game_box[i] if i < len(game_box) else []
+            right_row = event_log[i] if i < len(event_log) else []
+            
+            # Pad the left row to exact width so right_row aligns cleanly
+            padded_left = left_row + [""] * (pad_width - len(left_row))
+            self.boxscores.append(padded_left + right_row)
+
+        self.boxscores.append(["=" * (pad_width + 6)]) # Visual separator
         # -------------------------------
 
         away_runs = game.away.stats["batting"]["R"]
@@ -324,6 +428,13 @@ class SimulationEngine:
         
         team_obj = Team(team_name, lineup, starting_pitcher, defense, stadium=team_stadium)
         team_obj.bullpen = bullpen
+
+        historical_records = self.record_book.records
+        historical_ids = {str(r["ID"]) for r in historical_records}
+        for player in team_obj.lineup + team_obj.game_pitchers + team_obj.bullpen:
+            if player:
+                player.is_rookie = str(player.player_id) not in historical_ids
+
         return team_obj
 
     def _extract_post_game_data(self, team_name, team_obj):
@@ -594,6 +705,9 @@ class SimulationEngine:
 
     def run_offseason_progression(self):
         print("\n🍂 INITIATING OFFSEASON PROGRESSION (Block 27) 🍂")
+        
+        current_year = 2026 
+        self.log_season_history(current_year)
         
         for team_name, roster in self.rosters.items():
             for flat_player in roster:

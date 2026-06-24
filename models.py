@@ -1,11 +1,7 @@
 import random
 
 class Player:
-    """
-    An expanded Player class driven by an attribute dictionary.
-    Includes a structured Player ID, performance tracking, automated
-    Free Agent pruning, dynamic Sub-Stat calculations, and Form Momentum.
-    """
+    # An expanded Player class driven by an attribute dictionary.
     def __init__(self, player_id, name, attributes):
         self.player_id = str(player_id)  # e.g., "000100000001"
         self.name = name

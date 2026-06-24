@@ -2,11 +2,8 @@ import random
 from engine import AtBatSimulator
 
 class HalfInning:
-    """
-    Manages the game state for a single half-inning. 
-    Tracks bases, outs, runs, and routes the At-Bat outcomes.
-    """
-    def __init__(self, batting_team, fielding_team, league_env, inning_num, is_top, away_score, home_score, scoring_plays, game_instance=None, weather=None):
+    # Manages the game state for a single half-inning. 
+    def __init__(self, batting_team, fielding_team, league_env, inning_num, is_top, away_score, home_score, game_events, game_instance=None, weather=None, hr_record_target_away=0, hr_record_target_home=0):
         self.batting_team = batting_team
         self.fielding_team = fielding_team
         self.env = league_env
@@ -14,7 +11,7 @@ class HalfInning:
         self.is_top = is_top
         self.away_score = away_score
         self.home_score = home_score
-        self.scoring_plays = scoring_plays 
+        self.game_events = game_events
         self.game_instance = game_instance 
         self.weather = weather if weather else {"temp": 70, "wind_speed": 0, "wind_direction": "Calm", "precipitation": "None"}
         self.pitcher = fielding_team.pitcher
@@ -23,22 +20,60 @@ class HalfInning:
         self.runs = 0
         self.bases = {1: None, 2: None, 3: None}
         self.errors_in_inning = 0
+        self.hr_record_target_away = hr_record_target_away
+        self.hr_record_target_home = hr_record_target_home
 
     # --- PHASE 3: LIVE MILESTONE CHECKER ---
-    def check_in_game_milestone(self, player, stat_type, game_stat_value):
-        """Intercepts a stat increase and checks against the pre-game career context."""
+    def check_in_game_milestone(self, player, stat_type, season_stat_value):
         if not hasattr(player, 'career_context'): return None
         
-        career_total = player.career_context.get(stat_type, 0) + game_stat_value
+        career_total = player.career_context.get(stat_type, 0) + season_stat_value
+        alerts = []
         
-        if stat_type == "HR" and career_total > 0 and career_total % 100 == 0:
-            return f"*** CAREER MILESTONE! {player.name} hits Career Home Run #{career_total}! ***"
-        elif stat_type == "H" and career_total > 0 and career_total % 500 == 0:
-            return f"*** CAREER MILESTONE! {player.name} collects Career Hit #{career_total}! ***"
-        elif stat_type == "K" and career_total > 0 and career_total % 1000 == 0:
-            return f"*** CAREER MILESTONE! {player.name} strikes out his {career_total}th career batter! ***"
+        # --- 1. THE EXPANDED MILESTONE DICTIONARY ---
+        # Add any numbers here you want the engine to celebrate
+        milestone_thresholds = {
+            "HR": [1, 10, 50, 75, 100, 150, 200, 250, 300, 350, 400, 450, 500],
+            "H":  [1, 100, 250, 400, 500, 750, 1000, 1500, 2000],
+            "K":  [1, 100, 500, 1000, 2000, 3000, 4000],
+            "RBI": [1, 100, 500, 1000, 1500, 2000],
+            "SB":  [1, 50, 100, 250, 500],
+            "W":   [1, 10, 50, 100, 200, 300],
+            "SV":  [1, 50, 75, 100, 150, 200, 250, 300, 350, 400]
+        }
+        
+        if stat_type in milestone_thresholds and career_total in milestone_thresholds[stat_type]:
+            # Custom broadcast text for their very first one
+            if career_total == 1:
+                alerts.append(f"⚾ FIRST CAREER {stat_type}! {player.name} gets on the board! ⚾")
+            else:
+                alerts.append(f"*** CAREER MILESTONE! {player.name} reaches {career_total} career {stat_type}s! ***")
+
+        if self.is_top:
+            target = getattr(self.game_instance, 'hr_record_target_away', 0)
+        else:
+            target = getattr(self.game_instance, 'hr_record_target_home', 0)
+        
+        if stat_type == "HR":
+            if target > 0 and season_stat_value == target:
+                alerts.append(f"HISTORY! {player.name} just TIED the single-season franchise Home Run record ({int(target)})!")
+            elif target > 0 and season_stat_value == target + 1:
+                alerts.append(f"NEW RECORD! {player.name} breaks the franchise single-season Home Run record!")
+                
+        return alerts if alerts else None
+    
+    def log_event(self, event_type, player_name, description):
+        """Formats and appends the event for the Google Sheets payload."""
+        half_str = "Top" if self.is_top else "Bottom"
+        
+        # Assign the correct team name based on the event type
+        if event_type in ["Pitching Milestone", "Defensive Milestone"]:
+            team_name = self.fielding_team.name
+        else:
+            team_name = self.batting_team.name
             
-        return None
+        # 6-column array structure for the Sheet
+        self.game_events.append([self.inning_num, half_str, team_name, event_type, player_name, description])
 
     def play(self):
         """The main loop that runs until 3 outs are recorded or a walk-off occurs."""
@@ -84,6 +119,11 @@ class HalfInning:
             # AT-BAT LOGIC
             batter = self.batting_team.get_next_batter()
             print(f"\nUp to bat: {batter.name} | Outs: {self.outs} | Bases: {self.get_bases_string()}")
+
+            # 1. LOG DEBUTS
+            if getattr(batter, 'is_rookie', False) and batter.stats["batting"]["PA"] == 0:
+                print(f"  DEBUT ALERT: {batter.name} steps into the box for his first career at-bat!  ")
+                self.log_event("Debut", batter.name, "Welcome to the show! First career at-bat.")
             
             runs_at_start_of_ab = self.runs 
             p_bat = batter.stats["batting"]
@@ -129,9 +169,12 @@ class HalfInning:
                 t_pit["K"] += 1; p_pit["K"] += 1
                 print(f"  Result: Strikeout.")
                 
-                # Check for Pitcher Strikeout Milestone
+                # 2. LOG PITCHING STRIKEOUT MILESTONES
                 milestone = self.check_in_game_milestone(self.pitcher, "K", p_pit["K"])
-                if milestone: print(f"  {milestone}")
+                if milestone:
+                    for m in milestone:
+                        print(f"  {m}")
+                        self.log_event("Pitching Milestone", self.pitcher.name, m)
                 
                 self.record_fielding_stat("C", "PO")
                 self.record_out()
@@ -159,8 +202,12 @@ class HalfInning:
                         t_bat["H"] += 1; p_bat["H"] += 1
                         t_pit["H"] += 1; p_pit["H"] += 1
                         
+                        # 3. LOG BATTING HIT MILESTONES (Infield Hit)
                         milestone = self.check_in_game_milestone(batter, "H", p_bat["H"])
-                        if milestone: print(f"  {milestone}")
+                        if milestone:
+                            for m in milestone:
+                                print(f"  {m}")
+                                self.log_event("Batting Milestone", batter.name, m)
                         
                 else:
                     if not outcome["safe"]:
@@ -219,11 +266,18 @@ class HalfInning:
                             t_pit["H"] += 1; p_pit["H"] += 1
                             t_pit["HR"] += 1; p_pit["HR"] += 1
                             
-                            # Check Hit and HR Milestones
+                            # 4. LOG BATTING HR/HIT MILESTONES
                             milestone_h = self.check_in_game_milestone(batter, "H", p_bat["H"])
-                            if milestone_h: print(f"  {milestone_h}")
+                            if milestone_h:
+                                for m in milestone_h:
+                                    print(f"  {m}")
+                                    self.log_event("Batting Milestone", batter.name, m)
+                                    
                             milestone_hr = self.check_in_game_milestone(batter, "HR", p_bat["HR"])
-                            if milestone_hr: print(f"  {milestone_hr}")
+                            if milestone_hr:
+                                for m in milestone_hr:
+                                    print(f"  {m}")
+                                    self.log_event("Batting Milestone", batter.name, m)
                             
                             self.clear_bases_for_home_run(batter)
                             
@@ -240,8 +294,12 @@ class HalfInning:
                             t_bat["H"] += 1; p_bat["H"] += 1
                             t_pit["H"] += 1; p_pit["H"] += 1
                             
+                            # 5. LOG BATTING HIT MILESTONES (1B, 2B, 3B)
                             milestone = self.check_in_game_milestone(batter, "H", p_bat["H"])
-                            if milestone: print(f"  {milestone}")
+                            if milestone:
+                                for m in milestone:
+                                    print(f"  {m}")
+                                    self.log_event("Batting Milestone", batter.name, m)
                             
                             hit_location = outcome.get("location", "Center")
                             self.process_hit_advancement(batter, hit_type, hit_location)
@@ -256,6 +314,13 @@ class HalfInning:
                 if rbi_awarded > 0:
                     p_bat["RBI"] += rbi_awarded
                     t_bat["RBI"] += rbi_awarded
+                    
+                    # 6. LOG RBI MILESTONES
+                    milestone_rbi = self.check_in_game_milestone(batter, "RBI", p_bat["RBI"])
+                    if milestone_rbi:
+                        for m in milestone_rbi:
+                            print(f"  {m}")
+                            self.log_event("Batting Milestone", batter.name, m)
                 
                 hit_type = outcome.get("target", event)
                 location = outcome.get("location", "the field")
@@ -264,11 +329,8 @@ class HalfInning:
                 if hit_type == "HR": desc = f"{batter.name} hits a Home Run to {location}{rbi_text}"
                 else: desc = f"{batter.name} hits a {hit_type} to {location}{rbi_text}"
                 
-                play_record = {
-                    "inning": self.inning_num, "half": "Top" if self.is_top else "Bottom",
-                    "batter": batter.name, "event": hit_type, "rbi": rbi_awarded, "description": desc
-                }
-                self.scoring_plays.append(play_record)
+                # 7. LOG SCORING PLAYS
+                self.log_event("Scoring Play", batter.name, desc)
             
             # WALK-OFF CHECK
             if not self.is_top and self.inning_num >= 9:
@@ -287,7 +349,7 @@ class HalfInning:
                 max_stam = player.attributes.get('batting', {}).get('stamina', 100)
                 curr_stam = getattr(player, 'current_stamina', max_stam)
                 player.current_stamina = max(0, curr_stam - 1)
-    
+
     def record_out(self):
         self.outs += 1
         self.fielding_team.stats["pitching"]["Outs"] += 1
@@ -569,12 +631,12 @@ class HalfInning:
 class FullGame:
     """Manages the 9-inning game flow between two Team objects."""
     
-    def __init__(self, away_team, home_team, league_env, weather=None, career_stats=None):
+    def __init__(self, away_team, home_team, league_env, weather=None, career_stats=None, hr_record_target_away=0, hr_record_target_home=0):
         self.away = away_team
         self.home = home_team
         self.env = league_env
         self.inning = 1
-        self.scoring_plays = []
+        self.game_events = []
         
         # --- NEW INJECTIONS ---
         self.weather = weather if weather else {"temp": 70, "wind_speed": 0, "wind_direction": "Calm", "precipitation": "None"}
@@ -662,7 +724,7 @@ class FullGame:
             
             top_half = HalfInning(self.away, self.home, self.env, self.inning, True, 
                                   self.away.stats["batting"]["R"], self.home.stats["batting"]["R"], 
-                                  self.scoring_plays, self, weather=self.weather)
+                                  self.game_events, self, weather=self.weather)  # <-- Changed here
             top_half.play()
             
             if self.inning >= 9 and self.home.stats["batting"]["R"] > self.away.stats["batting"]["R"]:
@@ -671,7 +733,7 @@ class FullGame:
                 
             bottom_half = HalfInning(self.home, self.away, self.env, self.inning, False, 
                                      self.away.stats["batting"]["R"], self.home.stats["batting"]["R"], 
-                                     self.scoring_plays, self, weather=self.weather) 
+                                     self.game_events, self, weather=self.weather) # <-- Changed here
             bottom_half.play()
             
             self.inning += 1
@@ -704,3 +766,59 @@ class FullGame:
                 if stats["H"] >= 5: milestones.append(f"5-HIT GAME: {player.name} collects {stats['H']} hits!")
 
         return milestones
+    
+    def generate_sheets_payload(self):
+        """Builds a 2D array containing the Box Score and Game Log for Google Sheets."""
+        
+        # 1. Setup the Box Score Header
+        payload = [
+            ["DiamondBucs Simulation Engine"],
+            ["Team", "1", "2", "3", "4", "5", "6", "7", "8", "9", "R", "H", "E"]
+        ]
+        
+        # Helper to handle extra innings or unplayed bottom of the 9th
+        def format_linescore(linescore, innings):
+            padded = linescore.copy()
+            while len(padded) < innings:
+                padded.append("")
+            return padded
+
+        innings_played = max(9, self.inning - 1)
+        away_line = format_linescore(self.away.linescore, innings_played)
+        home_line = format_linescore(self.home.linescore, innings_played)
+
+        # If the home team walked it off, or didn't need the bottom of the 9th
+        if len(home_line) < len(away_line):
+            home_line.append("X")
+
+        # 2. Append the Linescores
+        payload.append([self.away.name] + away_line + [
+            self.away.stats["batting"]["R"], 
+            self.away.stats["batting"]["H"], 
+            self.away.stats["defense"]["E"]
+        ])
+        
+        payload.append([self.home.name] + home_line + [
+            self.home.stats["batting"]["R"], 
+            self.home.stats["batting"]["H"], 
+            self.home.stats["defense"]["E"]
+        ])
+        
+        # 3. Add End-of-Game Milestones (Cycles, No-Hitters, etc.)
+        post_game_milestones = self.check_milestones()
+        for m in post_game_milestones:
+            # We use "Final" for the inning since it's a post-game calculation
+            self.game_events.append(["Final", "End", "League", "Game Milestone", "Team/Staff", m])
+
+        # 4. Append the Filtered Event Log below the Box Score
+        payload.append([])
+        payload.append(["--- NOTABLE GAME EVENTS ---"])
+        payload.append(["Inning", "Half", "Team", "Event Type", "Player", "Play Description"])
+        
+        if not self.game_events:
+            payload.append(["", "", "", "No notable events recorded.", "", ""])
+        else:
+            for event in self.game_events:
+                payload.append(event)
+                
+        return payload
