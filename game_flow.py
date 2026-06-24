@@ -45,7 +45,7 @@ class HalfInning:
         if stat_type in milestone_thresholds and career_total in milestone_thresholds[stat_type]:
             # Custom broadcast text for their very first one
             if career_total == 1:
-                alerts.append(f"⚾ FIRST CAREER {stat_type}! {player.name} gets on the board! ⚾")
+                alerts.append(f"FIRST CAREER {stat_type}! {player.name} gets on the board!")
             else:
                 alerts.append(f"*** CAREER MILESTONE! {player.name} reaches {career_total} career {stat_type}s! ***")
 
@@ -62,6 +62,29 @@ class HalfInning:
                 
         return alerts if alerts else None
     
+    def register_hit_milestones(self, batter, p_bat):
+        """Helper to handle both Career Hits and active Hit Streaks."""
+        # 1. Check Career Milestones
+        milestone = self.check_in_game_milestone(batter, "H", p_bat["H"])
+        if milestone:
+            for m in milestone:
+                print(f"  {m}")
+                self.log_event("Batting Milestone", batter.name, m)
+                
+        # 2. Check Hit Streaks (Only triggers on their FIRST hit of the game)
+        if p_bat["H"] == 1: 
+            entering_streak = batter.attributes.get("current_hit_streak", 0)
+            new_streak = entering_streak + 1
+            
+            # Announce major streak thresholds
+            if new_streak in [10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60] or (new_streak > 60 and new_streak % 5 == 0):
+                msg = f"Hit Streak extended to {new_streak} games!"
+                if new_streak == 50:
+                    msg = "What a milestone, 50 game hit-streak!"
+                
+                print(f"  *** {msg} ***")
+                self.log_event("Batting Milestone", batter.name, msg)
+
     def log_event(self, event_type, player_name, description):
         """Formats and appends the event for the Google Sheets payload."""
         half_str = "Top" if self.is_top else "Bottom"
@@ -122,7 +145,7 @@ class HalfInning:
 
             # 1. LOG DEBUTS
             if getattr(batter, 'is_rookie', False) and batter.stats["batting"]["PA"] == 0:
-                print(f"  DEBUT ALERT: {batter.name} steps into the box for his first career at-bat!  ")
+                print(f"DEBUT ALERT: {batter.name} steps into the box for his first career at-bat!")
                 self.log_event("Debut", batter.name, "Welcome to the show! First career at-bat.")
             
             runs_at_start_of_ab = self.runs 
@@ -175,6 +198,19 @@ class HalfInning:
                     for m in milestone:
                         print(f"  {m}")
                         self.log_event("Pitching Milestone", self.pitcher.name, m)
+
+                if p_pit["K"] == 10:
+                    msg = "Reaches double-digit strikeouts (10 K's) in today's game!"
+                    print(f"  *** {msg} ***")
+                    self.log_event("Pitching Milestone", self.pitcher.name, msg)
+                elif p_pit["K"] == 15:
+                    msg = "Absolutely dominant! Records his 15th strikeout of the game!"
+                    print(f"  *** {msg} ***")
+                    self.log_event("Pitching Milestone", self.pitcher.name, msg)
+                elif p_pit["K"] == 20:
+                    msg = "INSANITY! This is the 20th strikeout of the game!"
+                    print(f"  *** {msg} ***")
+                    self.log_event("Pitching Milestone", self.pitcher.name, msg)
                 
                 self.record_fielding_stat("C", "PO")
                 self.record_out()
@@ -203,6 +239,7 @@ class HalfInning:
                         t_pit["H"] += 1; p_pit["H"] += 1
                         
                         # 3. LOG BATTING HIT MILESTONES (Infield Hit)
+                        self.register_hit_milestones(batter, p_bat)
                         milestone = self.check_in_game_milestone(batter, "H", p_bat["H"])
                         if milestone:
                             for m in milestone:
@@ -748,14 +785,44 @@ class FullGame:
         milestones = []
         
         for team, opponent in [(self.away, self.home), (self.home, self.away)]:
-            if opponent.stats["batting"]["H"] == 0:
-                if opponent.stats["batting"]["BB"] == 0 and opponent.stats["batting"]["HBP"] == 0 and team.stats["defense"]["E"] == 0:
-                    milestones.append(f"PERFECT GAME: {team.name} pitching staff!")
-                else:
-                    milestones.append(f"NO-HITTER: {team.name} pitching staff!")
-            elif opponent.stats["batting"]["R"] == 0:
-                milestones.append(f"SHUTOUT: {team.name} blanks the opponent.")
+            # --- PITCHING POST-GAME MILESTONES ---
+            # Use a set to grab unique pitchers. If length is 1, it's a Complete Game.
+            unique_pitchers = list(set(team.game_pitchers))
+            is_cg = False
+            
+            if len(unique_pitchers) == 1:
+                sp = unique_pitchers[0]
+                # Initialize the keys safely just in case
+                sp.stats["pitching"]["CG"] = sp.stats["pitching"].get("CG", 0)
+                sp.stats["pitching"]["SHO"] = sp.stats["pitching"].get("SHO", 0)
 
+                # A pitcher must record at least 24 outs (8 innings) for a loss CG, or 27 for a win CG
+                if sp.stats["pitching"]["Outs"] >= 24:
+                    is_cg = True
+                    sp.stats["pitching"]["CG"] += 1
+                    if opponent.stats["batting"]["R"] == 0:
+                        sp.stats["pitching"]["SHO"] += 1
+                        if opponent.stats["batting"]["H"] == 0:
+                            if opponent.stats["batting"]["BB"] == 0 and opponent.stats["batting"]["HBP"] == 0 and team.stats["defense"]["E"] == 0:
+                                milestones.append(f"PERFECT GAME: {sp.name} pitches a Perfect Game!")
+                            else:
+                                milestones.append(f"NO-HITTER: {sp.name} throws a No-Hitter!")
+                        else:
+                            milestones.append(f"COMPLETE GAME SHUTOUT: {sp.name} goes the distance and blanks the opponent!")
+                    else:
+                        milestones.append(f"COMPLETE GAME: {sp.name} pitches a complete game victory.")
+            
+            if not is_cg:
+                # Combined Efforts
+                if opponent.stats["batting"]["H"] == 0:
+                    if opponent.stats["batting"]["BB"] == 0 and opponent.stats["batting"]["HBP"] == 0 and team.stats["defense"]["E"] == 0:
+                        milestones.append(f"COMBINED PERFECT GAME: {team.name} pitching staff!")
+                    else:
+                        milestones.append(f"COMBINED NO-HITTER: {team.name} pitching staff!")
+                elif opponent.stats["batting"]["R"] == 0:
+                    milestones.append(f"SHUTOUT: {team.name} pitching staff blanks the opponent.")
+
+            # --- BATTING POST-GAME MILESTONES ---
             for player in team.lineup:
                 stats = player.stats["batting"]
                 

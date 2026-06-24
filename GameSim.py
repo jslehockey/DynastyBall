@@ -38,10 +38,18 @@ class LeagueWeatherSystem:
     
 class SimulationEngine:
     def __init__(self):
-        self.teams = [f"Team{i}" for i in range(1, 9)]
+        self.system_sheets = [
+            "Stats", "StatLog", "GameLog", "Standings", "Parks", 
+            "BoxScores", "Playoffs", "Draft Class", "TeamRegistry"
+        ]
+        
+        # 2. Populated dynamically in load_state
+        self.teams = [] 
+        self.team_ids = {}
         self.rosters = {}
         self.parks = {} 
-        self.standings = {team: {"W": 0, "L": 0, "RS": 0, "RA": 0} for team in self.teams}
+        self.standings = {}
+        
         self.game_log = []
         self.boxscores = []
         self.player_stats = {}
@@ -53,7 +61,6 @@ class SimulationEngine:
         try:
             park_records = SHEET.worksheet("Parks").get_all_records()
             
-            # Distance limits exactly as you specified
             dist_limits = {
                 "Left Field Line": (300, 350), "Dead Left Field": (320, 375),
                 "Left Center Gap": (340, 400), "Dead Center": (380, 425),
@@ -63,7 +70,6 @@ class SimulationEngine:
             height_limits = (10, 50)
             
             def validate_val(value, min_val, max_val, default):
-                """Ensures the value is an integer and falls within the zone's specific limits."""
                 try:
                     val = int(value)
                     if min_val <= val <= max_val:
@@ -75,7 +81,6 @@ class SimulationEngine:
                     return default
                     
             def get_key(row, partial_matches):
-                """Fuzzy matcher: finds the column value even if the header text changes slightly."""
                 for k in row.keys():
                     for match in partial_matches:
                         if match.lower() in k.lower():
@@ -86,7 +91,6 @@ class SimulationEngine:
                 team_name = row.get("Team")
                 if not team_name: continue
 
-                # 1. Extract and Validate Distances
                 dimensions = {
                     "Left Field Line": validate_val(get_key(row, ["Lef Field Line", "Left Field Line"]), *dist_limits["Left Field Line"], 330),
                     "Dead Left Field": validate_val(get_key(row, ["Dead Left Field"]), *dist_limits["Dead Left Field"], 360),
@@ -97,7 +101,6 @@ class SimulationEngine:
                     "Right Field Line": validate_val(get_key(row, ["Right Field Line"]), *dist_limits["Right Field Line"], 330)
                 }
 
-                # 2. Extract and Validate Heights
                 heights = {
                     "Left Field Line": validate_val(get_key(row, ["Left Field Fence", "LF Fence"]), *height_limits, 12),
                     "Dead Left Field": validate_val(get_key(row, ["Dead Left Fence"]), *height_limits, 12),
@@ -108,7 +111,6 @@ class SimulationEngine:
                     "Right Field Line": validate_val(get_key(row, ["Right Field Line Fence", "RF Fence"]), *height_limits, 12)
                 }
                 
-                # 3. Store both dictionaries under the team's name
                 self.parks[team_name] = {"dimensions": dimensions, "heights": heights}
                 
         except Exception as e:
@@ -126,20 +128,22 @@ class SimulationEngine:
         new_history_rows = []
         
         for team_name in self.teams:
-            current_tier = 1 # We can dynamically set this later based on your promotion logic
+            current_tier = 1 
             
             for player in self.rosters.get(team_name, []):
                 pid = str(player["ID"])
                 s = self.player_stats.get(pid)
                 
-                # Skip players who didn't accumulate stats
                 if not s or (s.get("AB", 0) == 0 and s.get("IP", 0) == 0):
                     continue 
                 
                 row = [
-                    season_id, pid, player["Name"], team_name, current_tier, player["Pos"],
+                    season_id, pid, player["Name"], 
+                    self.team_ids[team_name], team_name,
+                    current_tier, player["Pos"],
                     s.get("G", 0), s.get("AB", 0), s.get("H", 0), s.get("HR", 0), s.get("RBI", 0), s.get("R", 0),
-                    s.get("IP", 0), s.get("ER", 0), s.get("K", 0), s.get("BB", 0)
+                    s.get("IP", 0), s.get("ER", 0), s.get("K", 0), s.get("BB", 0),
+                    s.get("CG", 0), s.get("SHO", 0)
                 ]
                 new_history_rows.append(row)
                 
@@ -149,6 +153,40 @@ class SimulationEngine:
     
     def load_state(self):
         print("Loading current game state from Sheets...")
+        
+        # --- FRANCHISE REGISTRY INTEGRATION ---
+        try:
+            registry_records = SHEET.worksheet("TeamRegistry").get_all_records()
+        except gspread.exceptions.WorksheetNotFound:
+            print("  [FATAL ERROR] 'TeamRegistry' tab not found! Cannot proceed.")
+            import sys
+            sys.exit()
+
+        all_worksheets = SHEET.worksheets()
+        sheet_titles = [ws.title for ws in all_worksheets]
+
+        self.teams = []
+        for row in registry_records:
+            if str(row.get("Status", "")).strip().lower() == "active":
+                nickname = str(row.get("Nickname", "")).strip()
+                team_id = str(row.get("Team ID", "")).strip()
+                
+                # FATAL MISMATCH CHECK
+                if nickname not in sheet_titles:
+                    print(f"\n❌ [FATAL ERROR] Team Name Mismatch!")
+                    print(f"Registry lists '{nickname}' as Active, but no matching roster tab exists.")
+                    print("Halting simulation. Please fix the tab name or update the Registry.\n")
+                    import sys
+                    sys.exit()
+                    
+                self.teams.append(nickname)
+                self.team_ids[nickname] = team_id
+        
+        print(f"  > Found {len(self.teams)} active franchises: {', '.join(self.teams)}")
+        
+        self.standings = {team: {"W": 0, "L": 0, "RS": 0, "RA": 0} for team in self.teams}
+
+        # Load rosters using the validated dynamic names
         for team in self.teams:
             records = SHEET.worksheet(team).get_all_records()
             self.rosters[team] = records
@@ -167,7 +205,8 @@ class SimulationEngine:
                 self.player_stats[pid] = {
                     "ID": pid, "Name": player["Name"], "Team": team, "Pos": player["Pos"],
                     "G": 0, "AB": 0, "H": 0, "HR": 0, "RBI": 0, "R": 0, "AVG": ".000",
-                    "IP": 0, "ER": 0, "K": 0, "BB": 0, "ERA": "0.00"
+                    "IP": 0, "ER": 0, "K": 0, "BB": 0, "ERA": "0.00",
+                    "CG": 0, "SHO": 0
                 }
 
         self._load_stadium_dimensions()
@@ -190,20 +229,35 @@ class SimulationEngine:
             gl_records = SHEET.worksheet("GameLog").get_all_records()
             self.game_log = [[r["Away Team"], r["Away Score"], r["Away W/L"], 
                               r["Home Team"], r["Home Score"], r["Home W/L"]] for r in gl_records]
-            self.current_day = len(self.game_log) // 4 
+            self.current_day = len(self.game_log) // (len(self.teams) // 2) if self.teams else 0
         except Exception: pass
 
     def get_schedule_for_day(self, day_index):
-        master_schedule = [
-            [("Team2", "Team1"), ("Team4", "Team3"), ("Team6", "Team5"), ("Team8", "Team7")], 
-            [("Team1", "Team4"), ("Team3", "Team2"), ("Team5", "Team8"), ("Team7", "Team6")], 
-            [("Team3", "Team1"), ("Team2", "Team4"), ("Team7", "Team5"), ("Team8", "Team6")], 
-            [("Team1", "Team5"), ("Team2", "Team6"), ("Team3", "Team7"), ("Team4", "Team8")], 
-            [("Team6", "Team1"), ("Team5", "Team2"), ("Team8", "Team3"), ("Team7", "Team4")], 
-            [("Team1", "Team7"), ("Team2", "Team8"), ("Team3", "Team5"), ("Team4", "Team6")], 
-            [("Team8", "Team1"), ("Team7", "Team2"), ("Team6", "Team3"), ("Team5", "Team4")]  
-        ]
-        return master_schedule[day_index % len(master_schedule)]
+        """Generates a dynamic Round-Robin schedule for any number of teams."""
+        num_teams = len(self.teams)
+        if num_teams < 2: 
+            return []
+            
+        teams = self.teams.copy()
+        
+        round_num = day_index % (num_teams - 1)
+        
+        if round_num > 0:
+            teams = teams[:1] + teams[-round_num:] + teams[1:-round_num]
+            
+        matchups = []
+        half = num_teams // 2
+        
+        for i in range(half):
+            team_a = teams[i]
+            team_b = teams[-1 - i]
+            
+            if i % 2 == round_num % 2:
+                matchups.append((team_a, team_b))
+            else:
+                matchups.append((team_b, team_a))
+                
+        return matchups
 
     def simulate_game(self, away_team, home_team):
         away_games = self.standings[away_team]["W"] + self.standings[away_team]["L"]
@@ -229,27 +283,23 @@ class SimulationEngine:
         )
         game.play_game()
 
-        # --- NEW: BOXSCORE GENERATOR ---
+        # --- BOXSCORE GENERATOR (SIDE-BY-SIDE WITH EVENTS) ---
         away_hits = game.away.stats["batting"]["H"]
         home_hits = game.home.stats["batting"]["H"]
         away_errors = game.away.stats["defense"]["E"]
         home_errors = game.home.stats["defense"]["E"]
         
-        # Calculate how many innings were actually played
         max_innings = max(9, game.inning - 1)
         header_row = ["Team"] + [str(i) for i in range(1, max_innings + 1)] + ["R", "H", "E"]
         
-        # Format Away Line
         away_row = [away_team] + [str(x) if x is not None else "-" for x in game.away.linescore]
         while len(away_row) <= max_innings: away_row.append("-")
         away_row += [str(game.away.stats["batting"]["R"]), str(away_hits), str(away_errors)]
         
-        # Format Home Line
         home_row = [home_team] + [str(x) if x is not None else "X" for x in game.home.linescore]
         while len(home_row) <= max_innings: home_row.append("X" if len(home_row) == max_innings else "-")
         home_row += [str(game.home.stats["batting"]["R"]), str(home_hits), str(home_errors)]
         
-        # Extract Pitching Decisions
         wp_name, lp_name, sv_name = "", "", ""
         all_pitchers = game.away.game_pitchers + game.home.game_pitchers
         for p in all_pitchers:
@@ -317,19 +367,16 @@ class SimulationEngine:
         # 3. Merge Left and Right side-by-side
         max_rows = max(len(game_box), len(event_log))
         
-        # Dynamic padding calculation based on extra innings
-        # Boxscore needs 1 (Team) + max_innings + 3 (R/H/E) columns, plus 2 spacer columns
         pad_width = max(max_innings + 4, 11) + 2
         
         for i in range(max_rows):
             left_row = game_box[i] if i < len(game_box) else []
             right_row = event_log[i] if i < len(event_log) else []
             
-            # Pad the left row to exact width so right_row aligns cleanly
             padded_left = left_row + [""] * (pad_width - len(left_row))
             self.boxscores.append(padded_left + right_row)
 
-        self.boxscores.append(["=" * (pad_width + 6)]) # Visual separator
+        self.boxscores.append(["=" * (pad_width + 6)]) 
         # -------------------------------
 
         away_runs = game.away.stats["batting"]["R"]
@@ -450,8 +497,12 @@ class SimulationEngine:
                 if b_stats["PA"] > 0 or p_stats["Outs"] > 0: s["G"] += 1
                 s["AB"] += b_stats["AB"]; s["H"] += b_stats["H"]
                 s["HR"] += b_stats["HR"]; s["RBI"] += b_stats["RBI"]; s["R"] += b_stats["R"]
+                
                 s["IP"] += p_stats["Outs"] / 3.0; s["ER"] += p_stats["ER"]
                 s["K"] += p_stats["K"]; s["BB"] += p_stats["BB"]
+                
+                s["CG"] = s.get("CG", 0) + p_stats.get("CG", 0)
+                s["SHO"] = s.get("SHO", 0) + p_stats.get("SHO", 0)
             
             b_stats = obj_player.stats["batting"]
             if b_stats["PA"] > 0:
@@ -533,7 +584,7 @@ class SimulationEngine:
 
         print("  > Updating Standings...")
         ws_standings = SHEET.worksheet("Standings")
-        std_grid = [["Team", "W", "L", "RS", "RA"]]
+        std_grid = [["Team ID", "Team", "W", "L", "RS", "RA"]]
         
         sorted_standings = sorted(self.standings.items(), key=lambda x: x[1]["W"], reverse=True)
         for team, data in sorted_standings:
@@ -548,7 +599,6 @@ class SimulationEngine:
         ws_gamelog.update('A1', gl_grid)
         time.sleep(1.5)
 
-        # --- NEW: EXPORT BOXSCORES ---
         print("  > Updating Boxscores...")
         try:
             ws_box = SHEET.worksheet("BoxScores")
@@ -567,7 +617,7 @@ class SimulationEngine:
 
         print("  > Updating Player Stats...")
         ws_stats = SHEET.worksheet("Stats")
-        stat_headers = ["ID", "Name", "Team", "Pos", "G", "AB", "H", "HR", "RBI", "R", "AVG", "IP", "ER", "K", "BB", "ERA"]
+        stat_headers = ["ID", "Name", "Team", "Pos", "G", "AB", "H", "HR", "RBI", "R", "AVG", "IP", "ER", "K", "BB", "ERA", "CG", "SHO"]
         stat_grid = [stat_headers]
         
         for pid, s in self.player_stats.items():
@@ -587,7 +637,8 @@ class SimulationEngine:
             
             stat_grid.append([
                 s["ID"], s["Name"], s["Team"], s["Pos"], s["G"], s["AB"], s["H"], s["HR"], 
-                s["RBI"], s["R"], s["AVG"], round(s["IP"], 1), s["ER"], s["K"], s["BB"], s["ERA"]
+                s["RBI"], s["R"], s["AVG"], round(s["IP"], 1), s["ER"], s["K"], s["BB"], s["ERA"],
+                s.get("CG", 0), s.get("SHO", 0)
             ])
             
         ws_stats.clear()
@@ -732,7 +783,7 @@ class SimulationEngine:
         
         self.export_all()
         self.generate_draft_class()
-        print("✅ Offseason complete! Ready for next season.")
+        print("Offseason complete! Ready for next season.")
 
     def generate_draft_class(self):
         print("\n🧬 GENERATING NEW DRAFT CLASS...")
@@ -794,7 +845,7 @@ class SimulationEngine:
         block = self.get_current_sim_block()
 
         print(f"\n" + "="*50)
-        print(f"🚀 INITIATING SIM-STATE BLOCK {block}")
+        print(f"INITIATING SIM-STATE BLOCK {block}")
         print("="*50)
         
         if 1 <= block <= 7 or 19 <= block <= 25:
@@ -816,16 +867,16 @@ class SimulationEngine:
             print("\nSeason has fully concluded. Please reset your Standings to start a new year.")
 
 def run_live_test_environment():
-    print("⚾ BASEBALL FRANCHISE CLI ⚾")
+    print("BASEBALL FRANCHISE CLI")
     engine = SimulationEngine()
     engine.load_state()
     
     current_block = engine.get_current_sim_block()
-    print(f"\n✅ Ready to manually trigger Sim-State Block {current_block}")
+    print(f"\nReady to manually trigger Sim-State Block {current_block}")
     
     input("\nPress ENTER to run the current block (or CTRL+C to quit)...")
     engine.simulate_next_block()
-    print("\n🏁 Block complete. Run the script again when you are ready for the next block.")
+    print("\nBlock complete. Run the script again when you are ready for the next block.")
 
 if __name__ == "__main__":
     run_live_test_environment()
