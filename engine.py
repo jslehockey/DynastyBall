@@ -298,7 +298,6 @@ class AtBatSimulator:
                 play_log.append(f"Pitch {self.pitch_count}: {pitch['details']} ({self.balls}-{self.strikes})")
             elif pitch["result"] == "Strikeout":
                 play_log.append(f"Pitch {self.pitch_count}: {pitch['details']} - STRIKEOUT!")
-                self.pitcher.stats["pitching"]["K"] += 1 
                 final_outcome = {"event": "Strikeout", "log": play_log}
                 break
             elif pitch["result"] == "Foul":
@@ -347,14 +346,22 @@ class AtBatSimulator:
                 }
                 break
 
+        # --- END OF WHILE LOOP ---
+        
         if final_outcome is None:
             if self.balls >= 4:
                 play_log.append("  [WALK] Batter takes his base.")
                 final_outcome = {"event": "Walk", "log": play_log}
+                
             elif self.strikes >= 3:
                 play_log.append("  [STRIKEOUT] Batter goes down swinging.")
-                self.pitcher.stats["pitching"]["K"] += 1 
+                # Removed the K math from here!
                 final_outcome = {"event": "Strikeout", "log": play_log}
+
+        # --- CENTRALIZED STRIKEOUT STATS ---
+        if final_outcome and final_outcome["event"] == "Strikeout":
+            self.pitcher.stats["pitching"]["K"] += 1 
+            self.batter.stats["batting"]["K"] += 1
 
         self.apply_post_at_bat_fatigue()
         self.apply_post_at_bat_pitcher_fatigue()

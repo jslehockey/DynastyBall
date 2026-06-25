@@ -149,7 +149,7 @@ class SimulationEngine:
                 
         if new_history_rows:
             stat_log_ws.append_rows(new_history_rows)
-            print(f"  ✅ Successfully archived {len(new_history_rows)} player history entries.")
+            print(f"Successfully archived {len(new_history_rows)} player history entries.")
     
     def load_state(self):
         print("Loading current game state from Sheets...")
@@ -173,7 +173,7 @@ class SimulationEngine:
                 
                 # FATAL MISMATCH CHECK
                 if nickname not in sheet_titles:
-                    print(f"\n❌ [FATAL ERROR] Team Name Mismatch!")
+                    print(f"\n [FATAL ERROR] Team Name Mismatch!")
                     print(f"Registry lists '{nickname}' as Active, but no matching roster tab exists.")
                     print("Halting simulation. Please fix the tab name or update the Registry.\n")
                     import sys
@@ -213,8 +213,28 @@ class SimulationEngine:
 
         try:
             stat_log_records = SHEET.worksheet("Stats").get_all_records()
+            
+            # Load the existing stats back into the engine's memory
+            for row in stat_log_records:
+                pid = str(row.get("ID", ""))
+                if pid in self.player_stats:
+                    s = self.player_stats[pid]
+                    s["G"] = int(row.get("G", 0) or 0)
+                    s["AB"] = int(row.get("AB", 0) or 0)
+                    s["H"] = int(row.get("H", 0) or 0)
+                    s["HR"] = int(row.get("HR", 0) or 0)
+                    s["RBI"] = int(row.get("RBI", 0) or 0)
+                    s["R"] = int(row.get("R", 0) or 0)
+                    s["IP"] = float(row.get("IP", 0) or 0.0)
+                    s["ER"] = int(row.get("ER", 0) or 0)
+                    s["K"] = int(row.get("K", 0) or 0)
+                    s["BB"] = int(row.get("BB", 0) or 0)
+                    s["CG"] = int(row.get("CG", 0) or 0)
+                    s["SHO"] = int(row.get("SHO", 0) or 0)
+                    
         except Exception: 
             stat_log_records = []
+            
         self.record_book = RecordBook(stat_log_records)
 
         try:
@@ -588,7 +608,9 @@ class SimulationEngine:
         
         sorted_standings = sorted(self.standings.items(), key=lambda x: x[1]["W"], reverse=True)
         for team, data in sorted_standings:
-            std_grid.append([team, data["W"], data["L"], data["RS"], data["RA"]])
+            # FIX: Pull the Team ID from the dictionary to align the columns
+            team_id = self.team_ids.get(team, "")
+            std_grid.append([team_id, team, data["W"], data["L"], data["RS"], data["RA"]])
             
         ws_standings.update('A1', std_grid)
         time.sleep(1.5)
@@ -609,8 +631,11 @@ class SimulationEngine:
                     padded_row = row + [""] * (max_len - len(row))
                     uniform_boxscores.append(padded_row)
                     
-                ws_box.clear()
-                ws_box.update('A1', uniform_boxscores)
+                # Append instead of clearing
+                ws_box.append_rows(uniform_boxscores)
+                
+                # Clear the local list so we don't write duplicates if export_all runs twice
+                self.boxscores = []
             time.sleep(1.5)
         except Exception as e:
             print(f"  > [WARNING] Could not update 'Boxscores' tab. Did you create it? Error: {e}")
