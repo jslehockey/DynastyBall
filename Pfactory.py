@@ -23,6 +23,12 @@ class PlayerFactory:
         # --- TRAIT POOLS ---
         self.pitching_traits = ["Marathon Man", "Escape Artist", "Groundball Guru", "Putaway Pitcher", "Rubber Arm", "Ice in the Veins", "Pitch to Contact", "Lights Out"]
         self.hitting_traits = ["Clutch", "Table Setter", "First Pitch Killer", "Gold Glover", "Speed Demon", "Unfazed", "Platoon Punisher", "Launch Angle God"]
+        
+        # --- NEW: CONTRACT TRAIT POOL ---
+        self.contract_traits = [
+            "Loyalty", "MoneyHungry", "PlayingTime", "Performance",
+            "SecuritySeeker", "BetOnYourself", "RingChaser", "Pioneer"
+        ]
 
         # HITTER ARCHETYPES (13 Sub-Stats)
         self.positional_archetypes = {
@@ -103,7 +109,7 @@ class PlayerFactory:
             "Gagne":     {"arm_speed": 86, "deception": 82, "accuracy": 74, "command": 74, "spin_rate": 84, "bite": 84, "stamina": 25}
         }
 
-    # --- NEW HELPER: Shared Trait Generator ---
+    # --- HELPER: In-Game Roleplay Traits Generator ---
     def _generate_traits(self, is_pitcher=False):
         player_traits = []
         available = self.pitching_traits.copy() if is_pitcher else self.hitting_traits.copy()
@@ -126,6 +132,44 @@ class PlayerFactory:
                     player_traits.append(t3)
 
         return player_traits
+
+    # --- NEW HELPER: Contract & Free Agency Trait Generator ---
+    def _generate_contract_trait(self):
+        
+        # [Loyalty, MoneyHungry, PlayingTime, Performance, SecuritySeeker, BetOnYourself, RingChaser, Pioneer]
+        weights = [0.15, 0.30, 0.15, 0.15, 0.10, 0.05, 0.05, 0.05]
+        return random.choices(self.contract_traits, weights=weights, k=1)[0]
+    
+    def _generate_initial_contract(self, age, stat_means_dict, league_tier):
+        """
+        Generates a realistic active contract for a newly created player.
+        """
+        # Estimate OVR from the stat_means to judge their tier
+        avg_stat = sum(stat_means_dict.values()) / len(stat_means_dict)
+        
+        # Base salary logic similar to the expectation formula
+        base_salary = 750000 + (max(0, (avg_stat - 55)) ** 2.5) * 3500
+        
+        # Scale for tier
+        tier_multiplier = max(0.2, 1.0 - (0.4 * (league_tier - 1)))
+        salary = int(base_salary * tier_multiplier)
+        
+        # Determine contract length and how many years are left
+        if age <= 23:
+            # Young players usually on rookie/team-control deals
+            length = random.randint(3, 6)
+            salary = 750000 # League minimum for young guys
+        elif age >= 34:
+            # Veterans on short deals
+            length = random.randint(1, 2)
+        else:
+            # Prime age players on standard deals
+            length = random.randint(2, 5)
+            
+        # Randomize how many years they have left on this generated deal (1 to max length)
+        years_remaining = random.randint(1, length)
+        
+        return length, years_remaining, salary
 
     def get_next_id(self):
         self.sequence_tracker += 1
@@ -171,6 +215,7 @@ class PlayerFactory:
 
         # --- GENERATE TRAITS ---
         generated_traits = self._generate_traits(is_pitcher=False)
+        generated_contract_trait = self._generate_contract_trait()
 
         # Map the raw generated stats into their appropriate buckets
         attributes = {
@@ -207,11 +252,12 @@ class PlayerFactory:
             "pitching": {"arm_speed": 30, "deception": 30, "accuracy": 30, "command": 30, "spin_rate": 30, "bite": 30, "stamina": 20},
             "Primary Pos": target_pos, 
             "Game Pos": target_pos,
-            "traits": generated_traits # Assigned here!
+            "traits": generated_traits,
+            "contract_trait": generated_contract_trait # Assigned here!
         }
         
         player_obj = Player(player_id, name, attributes)
-        player_obj.traits = generated_traits # Direct access assignment
+        player_obj.traits = generated_traits
         player_obj.assigned_pos = target_pos
         return player_obj
     
@@ -248,6 +294,7 @@ class PlayerFactory:
 
         # --- GENERATE TRAITS ---
         generated_traits = self._generate_traits(is_pitcher=True)
+        generated_contract_trait = self._generate_contract_trait()
 
         # Map the raw generated stats into the pitching bucket
         attributes = {
@@ -276,11 +323,12 @@ class PlayerFactory:
             "Primary Pos": "P",
             "Game Pos": "P",
             "role": role,
-            "traits": generated_traits # Assigned here!
+            "traits": generated_traits,
+            "contract_trait": generated_contract_trait # Assigned here!
         }
         
         player_obj = Player(player_id, name, attributes)
-        player_obj.traits = generated_traits # Direct access assignment
+        player_obj.traits = generated_traits 
         player_obj.assigned_pos = "P"
         return player_obj
 
