@@ -194,11 +194,15 @@ class PlayerFactory:
         current_stats = {}
         for stat, mean in stat_means.items():
             tier_mult = max(0.5, 1.0 - (0.07 * (league_tier - 1)))
-            minor_mult = 0.90 if is_minor else 1.0
-            effective_mean = mean * tier_mult * minor_mult
+            minor_mult = 0.80 if is_minor else 1.0 
+            # NEW: 20% penalty for expansion startup teams
+            expansion_mult = 0.87 if is_expansion else 1.0 
+            
+            effective_mean = mean * tier_mult * minor_mult * expansion_mult
             
             val = int(random.gauss(effective_mean, 6))
-            current_stats[stat] = max(50, min(99, val))
+            # Lowered the floor to 45 so weak stats can actually be weak
+            current_stats[stat] = max(45, min(99, val))
 
         # Generate correlated Defensive Range based on Sprint Speed
         sprint = current_stats.get("sprint_speed", 50)
@@ -283,10 +287,14 @@ class PlayerFactory:
                 continue
             
             tier_mult = max(0.5, 1.0 - (0.07 * (league_tier - 1)))
-            minor_mult = 0.90 if is_minor else 1.0
-            effective_mean = mean * tier_mult * minor_mult
+            minor_mult = 0.80 if is_minor else 1.0
+            # NEW: 20% penalty for expansion startup teams
+            expansion_mult = 0.87 if is_expansion else 1.0
             
-            current_stats[stat] = int(max(50, min(99, random.gauss(effective_mean, 6))))
+            effective_mean = mean * tier_mult * minor_mult * expansion_mult
+            
+            # Lowered the floor to 35
+            current_stats[stat] = int(max(45, min(99, random.gauss(effective_mean, 6))))
 
         stamina = stat_means["stamina"]
         if role in ["MR", "LR"]: stamina = random.randint(40, 60)

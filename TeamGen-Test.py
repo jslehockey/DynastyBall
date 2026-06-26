@@ -137,8 +137,10 @@ def flatten_player(player, team_name):
         # Pitching
         player.velocity, p.get('arm_speed', 0), p.get('deception', 0),
         player.control, p.get('accuracy', 0), p.get('command', 0),
-        player.movement, p.get('spin_rate', 0), p.get('bite', 0)
-    ]
+        player.movement, p.get('spin_rate', 0), p.get('bite', 0),
+
+        0, 0, 0, 0, 0, 0, ""  # HitStrk, MaxHit, OBPStrk, MaxOBP, Scoreless, MaxScoreless, RecentForm
+    ]   
 
 def main():
     factory = PlayerFactory(current_season=2026)
@@ -160,7 +162,9 @@ def main():
         
         "Velo", "Vel.ArmSpd", "Vel.Decept", 
         "Control", "Ctrl.Acc", "Ctrl.Cmd", 
-        "Move", "Mov.Spin", "Mov.Bite"
+        "Move", "Mov.Spin", "Mov.Bite",
+        
+        "Cur Hit Strk", "Max Hit Strk", "Cur OBP Strk", "Max OBP Strk", "Cur Scoreless Outs", "Max Scoreless Outs", "Recent Form"
     ]
     
     all_players_data = [headers]
