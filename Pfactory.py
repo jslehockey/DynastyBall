@@ -1,5 +1,5 @@
 import random
-from models import Player
+from model_player import Player
 
 class PlayerFactory:
     def __init__(self, current_season):

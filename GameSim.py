@@ -1,265 +1,69 @@
+# ==========================================
+# GameSim.py (Master Controller)
+# ==========================================
+# Orchestrates the League Environment, runs the 
+# simulation loops, and delegates tasks to submodules.
+# ==========================================
 import random
 import gspread
 import time
-from models import Player, Team, LeagueEnvironment, Stadium
-from game_flow import FullGame
-from recordBook import RecordBook
+
+from model_league import LeagueEnvironment
+from flow_fullGame import FullGame
+from gameSim_weather import LeagueWeatherSystem
+
+# --- DELEGATED MODULES ---
+import gameSim_builder as builder
+import gameSim_reporter as reporter
+import gameSim_economy as economy
+import gameSim_season as season
 
 # --- CONFIGURATION ---
 SPREADSHEET_ID = "1mC6-qF2_niu5756t5Q1yI-QJL_fZcvaF_KkOTrHX3Yc"
 CLIENT = gspread.service_account(filename='credentials.json')
 SHEET = CLIENT.open_by_key(SPREADSHEET_ID)
 
-class LeagueWeatherSystem:
-    def __init__(self):
-        self.daily_forecasts = {}
-
-    def generate_daily_weather(self, day_number, teams):
-        """Generates a unique forecast for every home stadium for the given day."""
-        self.daily_forecasts[day_number] = {}
-        for team in teams:
-            temp = random.randint(45, 95)
-            wind_speed = random.randint(0, 20)
-            wind_direction = random.choice(["Blowing In", "Blowing Out", "Crosswind Left", "Crosswind Right", "Calm"])
-            precipitation = random.choices(["None", "Rain"], weights=[85, 15])[0] # 15% chance of rain
-            
-            self.daily_forecasts[day_number][team] = {
-                "temp": temp,
-                "wind_speed": wind_speed,
-                "wind_direction": wind_direction,
-                "precipitation": precipitation
-            }
-
-    def get_game_weather(self, day_number, home_team):
-        """Fetches the specific weather for the home stadium."""
-        return self.daily_forecasts.get(day_number, {}).get(home_team, {
-            "temp": 70, "wind_speed": 0, "wind_direction": "Calm", "precipitation": "None"
-        })
-    
 class SimulationEngine:
     def __init__(self):
+        # 1. Static Configuration
         self.system_sheets = [
             "Stats", "StatLog", "GameLog", "Standings", "Parks", 
             "BoxScores", "Playoffs", "Draft Class", "TeamRegistry"
         ]
         
-        # 2. Populated dynamically in load_state
+        # 2. State (Populated dynamically via builder)
         self.teams = [] 
         self.team_ids = {}
         self.rosters = {}
         self.parks = {} 
         self.standings = {}
         
+        # 3. Game/Season Memory
         self.game_log = []
         self.boxscores = []
         self.player_stats = {}
         self.current_day = 0
         self.weather_system = LeagueWeatherSystem()
+        self.record_book = None # Loaded in builder
 
-    def _load_stadium_dimensions(self):
-        print("  > Loading stadium dimensions and wall heights from 'Parks' sheet...")
-        try:
-            park_records = SHEET.worksheet("Parks").get_all_records()
-            
-            dist_limits = {
-                "Left Field Line": (300, 350), "Dead Left Field": (320, 375),
-                "Left Center Gap": (340, 400), "Dead Center": (380, 425),
-                "Right Center Gap": (340, 400), "Dead Right Field": (320, 375),
-                "Right Field Line": (300, 350)
-            }
-            height_limits = (10, 50)
-            
-            def validate_val(value, min_val, max_val, default):
-                try:
-                    val = int(value)
-                    if min_val <= val <= max_val:
-                        return val
-                    else:
-                        print(f"    [WARNING] Value {val} out of bounds ({min_val}-{max_val}). Defaulting to {default}.")
-                        return default
-                except (ValueError, TypeError):
-                    return default
-                    
-            def get_key(row, partial_matches):
-                for k in row.keys():
-                    for match in partial_matches:
-                        if match.lower() in k.lower():
-                            return row[k]
-                return None
+    def _get_win_pct(self, team_name):
+        w = self.standings[team_name]["W"]
+        l = self.standings[team_name]["L"]
+        return w / (w + l) if (w + l) > 0 else 0.500
 
-            for row in park_records:
-                team_name = row.get("Team")
-                if not team_name: continue
-
-                dimensions = {
-                    "Left Field Line": validate_val(get_key(row, ["Lef Field Line", "Left Field Line"]), *dist_limits["Left Field Line"], 330),
-                    "Dead Left Field": validate_val(get_key(row, ["Dead Left Field"]), *dist_limits["Dead Left Field"], 360),
-                    "Left Center Gap": validate_val(get_key(row, ["Left Center Gap"]), *dist_limits["Left Center Gap"], 380),
-                    "Dead Center": validate_val(get_key(row, ["Dead Center"]), *dist_limits["Dead Center"], 400),
-                    "Right Center Gap": validate_val(get_key(row, ["Right Center Gap"]), *dist_limits["Right Center Gap"], 380),
-                    "Dead Right Field": validate_val(get_key(row, ["Dead Right Field"]), *dist_limits["Dead Right Field"], 360),
-                    "Right Field Line": validate_val(get_key(row, ["Right Field Line"]), *dist_limits["Right Field Line"], 330)
-                }
-
-                heights = {
-                    "Left Field Line": validate_val(get_key(row, ["Left Field Fence", "LF Fence"]), *height_limits, 12),
-                    "Dead Left Field": validate_val(get_key(row, ["Dead Left Fence"]), *height_limits, 12),
-                    "Left Center Gap": validate_val(get_key(row, ["Left Center Fence"]), *height_limits, 12),
-                    "Dead Center": validate_val(get_key(row, ["Dead Center Fence"]), *height_limits, 12),
-                    "Right Center Gap": validate_val(get_key(row, ["Right Center Fence"]), *height_limits, 12),
-                    "Dead Right Field": validate_val(get_key(row, ["Dead Right Fence"]), *height_limits, 12),
-                    "Right Field Line": validate_val(get_key(row, ["Right Field Line Fence", "RF Fence"]), *height_limits, 12)
-                }
-                
-                self.parks[team_name] = {"dimensions": dimensions, "heights": heights}
-                
-        except Exception as e:
-            print(f"  > [WARNING] Could not load 'Parks' tab. Defaulting all stadiums to standard. Error: {e}")
-
-    def log_season_history(self, season_id):
-        """Sweeps player stats at the end of the year and appends to historical log."""
-        print(f"\n  > Archiving Season {season_id} transactional stats to 'StatLog'...")
-        try:
-            stat_log_ws = SHEET.worksheet("StatLog")
-        except gspread.exceptions.WorksheetNotFound:
-            print("  [ERROR] 'StatLog' tab not found in Google Sheets! Please create it.")
-            return
-        
-        new_history_rows = []
-        
-        for team_name in self.teams:
-            current_tier = 1 
-            
-            for player in self.rosters.get(team_name, []):
-                pid = str(player["ID"])
-                s = self.player_stats.get(pid)
-                
-                if not s or (s.get("AB", 0) == 0 and s.get("IP", 0) == 0):
-                    continue 
-                
-                row = [
-                    season_id, pid, player["Name"], 
-                    self.team_ids[team_name], team_name,
-                    current_tier, player["Pos"],
-                    s.get("G", 0), s.get("AB", 0), s.get("H", 0), s.get("HR", 0), s.get("RBI", 0), s.get("R", 0),
-                    s.get("IP", 0), s.get("ER", 0), s.get("K", 0), s.get("BB", 0),
-                    s.get("CG", 0), s.get("SHO", 0)
-                ]
-                new_history_rows.append(row)
-                
-        if new_history_rows:
-            stat_log_ws.append_rows(new_history_rows)
-            print(f"Successfully archived {len(new_history_rows)} player history entries.")
-    
-    def load_state(self):
-        print("Loading current game state from Sheets...")
-        
-        # --- FRANCHISE REGISTRY INTEGRATION ---
-        try:
-            registry_records = SHEET.worksheet("TeamRegistry").get_all_records()
-        except gspread.exceptions.WorksheetNotFound:
-            print("  [FATAL ERROR] 'TeamRegistry' tab not found! Cannot proceed.")
-            import sys
-            sys.exit()
-
-        all_worksheets = SHEET.worksheets()
-        sheet_titles = [ws.title for ws in all_worksheets]
-
-        self.teams = []
-        for row in registry_records:
-            if str(row.get("Status", "")).strip().lower() == "active":
-                nickname = str(row.get("Nickname", "")).strip()
-                team_id = str(row.get("Team ID", "")).strip()
-                
-                # FATAL MISMATCH CHECK
-                if nickname not in sheet_titles:
-                    print(f"\n [FATAL ERROR] Team Name Mismatch!")
-                    print(f"Registry lists '{nickname}' as Active, but no matching roster tab exists.")
-                    print("Halting simulation. Please fix the tab name or update the Registry.\n")
-                    import sys
-                    sys.exit()
-                    
-                self.teams.append(nickname)
-                self.team_ids[nickname] = team_id
-        
-        print(f"  > Found {len(self.teams)} active franchises: {', '.join(self.teams)}")
-        
-        self.standings = {team: {"W": 0, "L": 0, "RS": 0, "RA": 0} for team in self.teams}
-
-        # Load rosters using the validated dynamic names
-        for team in self.teams:
-            records = SHEET.worksheet(team).get_all_records()
-            self.rosters[team] = records
-            for player in records:
-                player["Max Stam"] = int(player.get("Max Stam", 0) or 0)
-                player["Cur Stam"] = int(player.get("Cur Stam", 0) or 0)
-                player.setdefault("Cur Hit Strk", 0)
-                player.setdefault("Max Hit Strk", 0)
-                player.setdefault("Cur OBP Strk", 0)
-                player.setdefault("Max OBP Strk", 0)
-                player.setdefault("Cur Scoreless Outs", 0)
-                player.setdefault("Max Scoreless Outs", 0)
-                player.setdefault("Recent Form", "")
-                
-                pid = str(player["ID"])
-                self.player_stats[pid] = {
-                    "ID": pid, "Name": player["Name"], "Team": team, "Pos": player["Pos"],
-                    "G": 0, "AB": 0, "H": 0, "HR": 0, "RBI": 0, "R": 0, "AVG": ".000",
-                    "IP": 0, "ER": 0, "K": 0, "BB": 0, "ERA": "0.00",
-                    "CG": 0, "SHO": 0
-                }
-
-        self._load_stadium_dimensions()
-
-        try:
-            stat_log_records = SHEET.worksheet("Stats").get_all_records()
-            
-            # Load the existing stats back into the engine's memory
-            for row in stat_log_records:
-                pid = str(row.get("ID", ""))
-                if pid in self.player_stats:
-                    s = self.player_stats[pid]
-                    s["G"] = int(row.get("G", 0) or 0)
-                    s["AB"] = int(row.get("AB", 0) or 0)
-                    s["H"] = int(row.get("H", 0) or 0)
-                    s["HR"] = int(row.get("HR", 0) or 0)
-                    s["RBI"] = int(row.get("RBI", 0) or 0)
-                    s["R"] = int(row.get("R", 0) or 0)
-                    s["IP"] = float(row.get("IP", 0) or 0.0)
-                    s["ER"] = int(row.get("ER", 0) or 0)
-                    s["K"] = int(row.get("K", 0) or 0)
-                    s["BB"] = int(row.get("BB", 0) or 0)
-                    s["CG"] = int(row.get("CG", 0) or 0)
-                    s["SHO"] = int(row.get("SHO", 0) or 0)
-                    
-        except Exception: 
-            stat_log_records = []
-            
-        self.record_book = RecordBook(stat_log_records)
-
-        try:
-            std_records = SHEET.worksheet("Standings").get_all_records()
-            for r in std_records:
-                t = r["Team"]
-                if t in self.standings:
-                    self.standings[t].update({"W": r["W"], "L": r["L"], "RS": r["RS"], "RA": r["RA"]})
-        except Exception: pass
-
-        try:
-            gl_records = SHEET.worksheet("GameLog").get_all_records()
-            self.game_log = [[r["Away Team"], r["Away Score"], r["Away W/L"], 
-                              r["Home Team"], r["Home Score"], r["Home W/L"]] for r in gl_records]
-            self.current_day = len(self.game_log) // (len(self.teams) // 2) if self.teams else 0
-        except Exception: pass
+    def _count_superstars(self, team_obj):
+        """Rough estimation of superstars based on traits/stats until OVR is fully integrated."""
+        count = 0
+        for p in team_obj.lineup + team_obj.game_pitchers:
+            if p and len(p.traits) >= 2: count += 1 
+        return count
 
     def get_schedule_for_day(self, day_index):
-        """Generates a dynamic Round-Robin schedule for any number of teams."""
         num_teams = len(self.teams)
         if num_teams < 2: 
             return []
             
         teams = self.teams.copy()
-        
         round_num = day_index % (num_teams - 1)
         
         if round_num > 0:
@@ -279,16 +83,38 @@ class SimulationEngine:
                 
         return matchups
 
-    def simulate_game(self, away_team, home_team):
+    def simulate_game(self, away_team, home_team, match_type="Regular"):
         away_games = self.standings[away_team]["W"] + self.standings[away_team]["L"]
         home_games = self.standings[home_team]["W"] + self.standings[home_team]["L"]
         
         away_sp_role = f"SP{(away_games % 5) + 1}"
         home_sp_role = f"SP{(home_games % 5) + 1}"
 
-        away_obj = self._build_team_object(away_team, away_sp_role)
-        home_obj = self._build_team_object(home_team, home_sp_role)
+        away_obj = builder.build_team_object(self, away_team, away_sp_role)
+        home_obj = builder.build_team_object(self, home_team, home_sp_role)
 
+        # Calculate Economy & Modifiers
+        h_park = self.parks.get(home_team, {})
+        a_park = self.parks.get(away_team, {})
+
+        active_stars = self._count_superstars(home_obj) + self._count_superstars(away_obj)
+
+        attendance_data = economy.calculate_match_attendance(
+            capacity=h_park.get("capacity", 30000),
+            actual_price=h_park.get("ticket_price", 30.00),
+            home_tier=h_park.get("tier", 1),
+            away_tier=a_park.get("tier", 1),
+            match_type=match_type,
+            home_prestige=h_park.get("prestige", 50),
+            home_win_pct=self._get_win_pct(home_team),
+            away_prestige=a_park.get("prestige", 50),
+            away_win_pct=self._get_win_pct(away_team),
+            active_superstars=active_stars
+        )
+        
+        modifiers = economy.get_homefield_modifiers(attendance_data["attendance"])
+
+        # Record Targets
         away_hr_record = self.record_book.get_franchise_records(away_team, "HR", record_type="season", limit=1)
         home_hr_record = self.record_book.get_franchise_records(home_team, "HR", record_type="season", limit=1)
         
@@ -297,13 +123,18 @@ class SimulationEngine:
 
         env = LeagueEnvironment()
         local_weather = self.weather_system.get_game_weather(self.current_day, home_team)
+        
+        # Execute Core Game Engine
         game = FullGame(
             away_obj, home_obj, env, weather=local_weather, career_stats=self.player_stats, 
-            hr_record_target_away=target_hr_away, hr_record_target_home=target_hr_home
+            hr_record_target_away=target_hr_away, hr_record_target_home=target_hr_home,
+            attendance_data=attendance_data, modifiers=modifiers 
         )
         game.play_game()
 
-        # --- BOXSCORE GENERATOR (SIDE-BY-SIDE WITH EVENTS) ---
+        # =====================================
+        # Boxscore Formatting & Export Payload
+        # =====================================
         away_hits = game.away.stats["batting"]["H"]
         home_hits = game.home.stats["batting"]["H"]
         away_errors = game.away.stats["defense"]["E"]
@@ -331,9 +162,12 @@ class SimulationEngine:
         decision_str = f"WP: {wp_name} | LP: {lp_name}"
         if sv_name: decision_str += f" | SV: {sv_name}"
 
-        # 1. Build Boxscore array locally first (LEFT SIDE)
         game_box = []
         game_box.append([f"Day {self.current_day}: {away_team} at {home_team}"])
+        
+        att_str = f"Attendance: {attendance_data['attendance']:,} ({attendance_data['attendance_pct']}%) | Atmosphere: {modifiers['atmosphere']} | Gate Rev: ${attendance_data['game_revenue']:,.2f}"
+        game_box.append([att_str])
+        
         game_box.append(header_row)
         game_box.append(away_row)
         game_box.append(home_row)
@@ -370,7 +204,6 @@ class SimulationEngine:
             ip_str = f"{outs // 3}.{outs % 3}"
             game_box.append([p.name, ip_str, pit["H"], pit["R"], pit["ER"], pit["BB"], pit["K"], pit["HR"], pit["Pitches"]])
 
-        # 2. Build Event Log locally (RIGHT SIDE)
         post_game_milestones = game.check_milestones()
         for m in post_game_milestones:
             game.game_events.append(["Final", "End", "League", "Game Milestone", "Team/Staff", m])
@@ -384,21 +217,18 @@ class SimulationEngine:
             for event in game.game_events:
                 event_log.append(event)
                 
-        # 3. Merge Left and Right side-by-side
         max_rows = max(len(game_box), len(event_log))
-        
         pad_width = max(max_innings + 4, 11) + 2
         
         for i in range(max_rows):
             left_row = game_box[i] if i < len(game_box) else []
             right_row = event_log[i] if i < len(event_log) else []
-            
             padded_left = left_row + [""] * (pad_width - len(left_row))
             self.boxscores.append(padded_left + right_row)
 
         self.boxscores.append(["=" * (pad_width + 6)]) 
-        # -------------------------------
-
+        
+        # Adjust Standings
         away_runs = game.away.stats["batting"]["R"]
         home_runs = game.home.stats["batting"]["R"]
         
@@ -417,92 +247,10 @@ class SimulationEngine:
         self.standings[away_team]["RA"] += home_runs
         
         self.game_log.append([away_team, away_runs, away_wl, home_team, home_runs, home_wl])
+        
+        # Extract Post Game Stats
         self._extract_post_game_data(away_team, away_obj)
         self._extract_post_game_data(home_team, home_obj)
-
-    def _build_team_object(self, team_name, starting_pitcher_role):
-        team_rows = self.rosters[team_name]
-        hitters, defense, bullpen, starting_pitcher = [], {}, [], None
-        
-        for row in team_rows:
-            attributes = {
-                "bats": "R", "throws": "R",  
-                "batting": {
-                    "timing": int(row.get("Con.Timing", 0) or 0), "barreling": int(row.get("Con.Barrel", 0) or 0),
-                    "strength": int(row.get("Pow.Str", 0) or 0), "bat_speed": int(row.get("Pow.BatSpd", 0) or 0),
-                    "elevation": int(row.get("Pow.Elev", 0) or 0), "eye": int(row.get("Disc.Eye", 0) or 0),
-                    "restraint": int(row.get("Disc.Restr", 0) or 0), "stamina": int(row.get("Max Stam", 0) or 0)
-                },
-                "baserunning": {
-                    "sprint_speed": int(row.get("Spd.Sprint", 0) or 0), "instincts": int(row.get("Spd.Inst", 0) or 0)
-                },
-               "defense": {
-                    "def.range": int(row.get("def.Range", row.get("Def.Range", 0)) or 0),
-                    "def.reaction": int(row.get("def.reaction", row.get("Def.React", 0)) or 0),
-                    "def.glove": int(row.get("def.glove", row.get("Def.Glove", 0)) or 0),
-                    "def.ArmStr": int(row.get("def.ArmStr", row.get("Def.ArmStr", 0)) or 0),
-                    "def.ArmAcc": int(row.get("def.ArmAcc", row.get("Def.ArmAcc", 0)) or 0)
-                },
-                "pitching": {
-                    "arm_speed": int(row.get("Vel.ArmSpd", 0) or 0), "deception": int(row.get("Vel.Decept", 0) or 0),
-                    "accuracy": int(row.get("Ctrl.Acc", 0) or 0), "command": int(row.get("Ctrl.Cmd", 0) or 0),
-                    "spin_rate": int(row.get("Mov.Spin", 0) or 0), "bite": int(row.get("Mov.Bite", 0) or 0),
-                    "stamina": int(row.get("Max Stam", 0) or 0)
-                },
-                "development": {
-                    "age": int(row.get("Age", 18) or 18), "archetype": str(row.get("Arch", "Unknown"))
-                },
-                "strategy": {},
-                "role": str(row.get("Role/Order", "")).strip(),
-                "primary_pos": str(row.get("Primary Pos", row.get("Pos", "DH"))),
-                "game_pos": str(row.get("Game Pos", row.get("Pos", "DH"))),
-                "current_hit_streak": int(row.get("Cur Hit Strk", 0) or 0),
-                "longest_hit_streak": int(row.get("Max Hit Strk", 0) or 0),
-                "current_obp_streak": int(row.get("Cur OBP Strk", 0) or 0),
-                "longest_obp_streak": int(row.get("Max OBP Strk", 0) or 0),
-                "current_scoreless_outs": int(row.get("Cur Scoreless Outs", 0) or 0),
-                "longest_scoreless_outs": int(row.get("Max Scoreless Outs", 0) or 0),
-                "recent_form": str(row.get("Recent Form", "")),
-                "traits": [t.strip() for t in [str(row.get("Trait1", "")), str(row.get("Trait2", "")), str(row.get("Trait3", ""))] if t.strip() and t.strip() != "-"]
-            }
-            
-            player = Player(row["ID"], row["Name"], attributes)
-            
-            player.traits = attributes["traits"]
-            player.current_stamina = int(row.get("Cur Stam", 0) or 0)
-            
-            role = attributes["role"]
-            game_pos = attributes["game_pos"]
-            
-            if role.isdigit() and 1 <= int(role) <= 9: hitters.append((int(role), player))
-            elif game_pos == "P":
-                if role == starting_pitcher_role: starting_pitcher = player
-                elif role not in ["Bench", "Minors"]: bullpen.append(player)
-
-            if game_pos and game_pos not in ["DH", "P", "Bench", "Minors"]:
-                defense[game_pos] = player
-                
-        if starting_pitcher: defense["P"] = starting_pitcher
-
-        hitters.sort(key=lambda x: x[0])
-        lineup = [h[1] for h in hitters][:9]
-        
-        park_data = self.parks.get(team_name, {})
-        park_dims = park_data.get("dimensions", None)
-        park_heights = park_data.get("heights", None)
-        
-        team_stadium = Stadium(name=f"{team_name} Park", custom_dimensions=park_dims, custom_heights=park_heights)
-        
-        team_obj = Team(team_name, lineup, starting_pitcher, defense, stadium=team_stadium)
-        team_obj.bullpen = bullpen
-
-        historical_records = self.record_book.records
-        historical_ids = {str(r["ID"]) for r in historical_records}
-        for player in team_obj.lineup + team_obj.game_pitchers + team_obj.bullpen:
-            if player:
-                player.is_rookie = str(player.player_id) not in historical_ids
-
-        return team_obj
 
     def _extract_post_game_data(self, team_name, team_obj):
         all_players = team_obj.lineup + team_obj.game_pitchers + team_obj.bullpen
@@ -568,306 +316,20 @@ class SimulationEngine:
                     flat_player["Recent Form"] = obj_player.recent_form_str
                     break
 
-    def recover_daily_stamina(self):
-        for roster in self.rosters.values():
-            for player in roster:
-                traits = [
-                    str(player.get("Trait1", "")), 
-                    str(player.get("Trait2", "")), 
-                    str(player.get("Trait3", ""))
-                ]
-                
-                recovery_amount = 27 if "Rubber Arm" in traits else 20
-                
-                max_stam = int(player.get("Max Stam", 100))
-                cur_stam = int(player.get("Cur Stam", 100))
-                
-                player["Cur Stam"] = min(max_stam, cur_stam + recovery_amount)
-
-    def export_all(self):
-        print("Exporting updated rosters, stats, and standings back to Google Sheets...")
-        
-        for team_name, roster in self.rosters.items():
-            ws = SHEET.worksheet(team_name)
-            if not roster: 
-                continue
-                
-            headers = list(roster[0].keys())
-            grid = [headers]
-            for player in roster:
-                row = [player.get(h, "") for h in headers]
-                grid.append(row)
-                
-            ws.update('A1', grid)
-            print(f"  > Updated {team_name} fatigue levels.")
-            time.sleep(1.5)  
-
-        print("  > Updating Standings...")
-        ws_standings = SHEET.worksheet("Standings")
-        std_grid = [["Team ID", "Team", "W", "L", "RS", "RA"]]
-        
-        sorted_standings = sorted(self.standings.items(), key=lambda x: x[1]["W"], reverse=True)
-        for team, data in sorted_standings:
-            # FIX: Pull the Team ID from the dictionary to align the columns
-            team_id = self.team_ids.get(team, "")
-            std_grid.append([team_id, team, data["W"], data["L"], data["RS"], data["RA"]])
-            
-        ws_standings.update('A1', std_grid)
-        time.sleep(1.5)
-
-        print("  > Updating GameLog...")
-        ws_gamelog = SHEET.worksheet("GameLog")
-        gl_grid = [["Away Team", "Away Score", "Away W/L", "Home Team", "Home Score", "Home W/L"]] + self.game_log
-        ws_gamelog.update('A1', gl_grid)
-        time.sleep(1.5)
-
-        print("  > Updating Boxscores...")
-        try:
-            ws_box = SHEET.worksheet("BoxScores")
-            if self.boxscores:
-                max_len = max(len(row) for row in self.boxscores)
-                uniform_boxscores = []
-                for row in self.boxscores:
-                    padded_row = row + [""] * (max_len - len(row))
-                    uniform_boxscores.append(padded_row)
-                    
-                # Append instead of clearing
-                ws_box.append_rows(uniform_boxscores)
-                
-                # Clear the local list so we don't write duplicates if export_all runs twice
-                self.boxscores = []
-            time.sleep(1.5)
-        except Exception as e:
-            print(f"  > [WARNING] Could not update 'Boxscores' tab. Did you create it? Error: {e}")
-
-        print("  > Updating Player Stats...")
-        ws_stats = SHEET.worksheet("Stats")
-        stat_headers = ["ID", "Name", "Team", "Pos", "G", "AB", "H", "HR", "RBI", "R", "AVG", "IP", "ER", "K", "BB", "ERA", "CG", "SHO"]
-        stat_grid = [stat_headers]
-        
-        for pid, s in self.player_stats.items():
-            if s.get("G", 0) == 0 and s.get("AB", 0) == 0 and s.get("IP", 0) == 0:
-                continue 
-
-            if s["AB"] > 0:
-                avg = s["H"] / s["AB"]
-                avg_str = f"{avg:.3f}".lstrip('0')
-                if avg == 1.0: avg_str = "1.000"
-            else:
-                avg_str = ".000"
-            s["AVG"] = avg_str
-            
-            era = (s["ER"] * 9) / s["IP"] if s["IP"] > 0 else 0.0
-            s["ERA"] = f"{era:.2f}"
-            
-            stat_grid.append([
-                s["ID"], s["Name"], s["Team"], s["Pos"], s["G"], s["AB"], s["H"], s["HR"], 
-                s["RBI"], s["R"], s["AVG"], round(s["IP"], 1), s["ER"], s["K"], s["BB"], s["ERA"],
-                s.get("CG", 0), s.get("SHO", 0)
-            ])
-            
-        ws_stats.clear()
-        ws_stats.update('A1', stat_grid)
-        
-        print("✅ Master Export complete! All tabs are synced.")
-
-    def get_current_sim_block(self):
-        max_games_played = max((team["W"] + team["L"]) for team in self.standings.values())
-        if max_games_played < 28: return (max_games_played // 4) + 1
-        elif max_games_played < 61: return 7 + ((max_games_played - 28) // 3) + 1
-        elif max_games_played < 89: return 18 + ((max_games_played - 61) // 4) + 1
-        elif max_games_played >= 89 and max_games_played < 93: return 26
-        else: return 27
-
     def _run_daily_slate(self, is_bye):
-        self.recover_daily_stamina()
+        season.recover_daily_stamina(self)
         if is_bye:
             print(f"\n[LEAGUE BYE DAY] All teams are resting and recovering stamina.")
         else:
             self.weather_system.generate_daily_weather(self.current_day, self.teams)
             matchups = self.get_schedule_for_day(self.current_day)
             for away, home in matchups:
-                self.simulate_game(away, home)
+                self.simulate_game(away, home, match_type="Regular")
             self.current_day += 1
-        self.export_all()
-
-    def simulate_playoff_block(self):
-        sorted_teams = sorted(self.teams, key=lambda x: self.standings[x]["W"], reverse=True)
-        seed1, seed2, seed3, seed4 = sorted_teams[0], sorted_teams[1], sorted_teams[2], sorted_teams[3]
-        
-        print(f"\n🏆 PLAYOFFS INITIATED 🏆")
-        series_a_scores = {seed1: [], seed4: []}
-        series_b_scores = {seed2: [], seed3: []}
-        
-        for day in range(1, 5):
-            self.recover_daily_stamina()
-            if day == 4:
-                self.export_all()
-                break
-                
-            games_played_today = False
-            if len(series_a_scores[seed1]) < 3 and series_a_scores[seed1].count("W") < 2 and series_a_scores[seed4].count("W") < 2:
-                games_played_today = True
-                away = seed4 if day in [1, 3] else seed1
-                home = seed1 if day in [1, 3] else seed4
-                self.simulate_game(away, home)
-                last_game = self.game_log[-1] 
-                series_a_scores[away].append(last_game[1])
-                series_a_scores[home].append(last_game[4])
-                
-            if len(series_b_scores[seed2]) < 3 and series_b_scores[seed2].count("W") < 2 and series_b_scores[seed3].count("W") < 2:
-                games_played_today = True
-                away = seed3 if day in [1, 3] else seed2
-                home = seed2 if day in [1, 3] else seed3
-                self.simulate_game(away, home)
-                last_game = self.game_log[-1]
-                series_b_scores[away].append(last_game[1])
-                series_b_scores[home].append(last_game[4])
-
-            if not games_played_today: break
-            self.export_all()
-            
-        adv_a = seed1 if sum(1 for i in range(len(series_a_scores[seed1])) if series_a_scores[seed1][i] > series_a_scores[seed4][i]) == 2 else seed4
-        adv_b = seed2 if sum(1 for i in range(len(series_b_scores[seed2])) if series_b_scores[seed2][i] > series_b_scores[seed3][i]) == 2 else seed3
-        
-        high_seed = adv_a if sorted_teams.index(adv_a) < sorted_teams.index(adv_b) else adv_b
-        low_seed = adv_b if high_seed == adv_a else adv_a
-        finals_scores = {high_seed: [], low_seed: []}
-
-        for day in range(1, 5):
-            self.recover_daily_stamina()
-            if day == 4:
-                self.export_all()
-                break
-
-            if len(finals_scores[high_seed]) < 3 and sum(1 for i in range(len(finals_scores[high_seed])) if finals_scores[high_seed][i] > finals_scores[low_seed][i]) < 2 and sum(1 for i in range(len(finals_scores[low_seed])) if finals_scores[low_seed][i] > finals_scores[high_seed][i]) < 2:
-                away = low_seed if day in [1, 3] else high_seed
-                home = high_seed if day in [1, 3] else low_seed
-                self.simulate_game(away, home)
-                last_game = self.game_log[-1]
-                finals_scores[away].append(last_game[1])
-                finals_scores[home].append(last_game[4])
-                self.export_all()
-            else:
-                break
-                
-        self._export_playoff_bracket(series_a_scores, series_b_scores, finals_scores)
-
-    def _export_playoff_bracket(self, a_scores, b_scores, f_scores):
-        print("\nExporting Playoff Bracket to Google Sheets...")
-        ws = SHEET.worksheet("Playoffs")
-        ws.clear()
-        
-        grid = [
-            ["🏆 SEMIFINALS (Best of 3)"],
-            ["Team", "Game 1", "Game 2", "Game 3"]
-        ]
-        
-        for series in [a_scores, b_scores]:
-            for team_name, scores in series.items():
-                row = [team_name] + scores
-                while len(row) < 4: row.append("-")
-                grid.append(row)
-            grid.append([])
-            
-        grid.append(["🏆 CHAMPIONSHIP FINALS (Best of 3)"])
-        grid.append(["Team", "Game 1", "Game 2", "Game 3"])
-        for team_name, scores in f_scores.items():
-            row = [team_name] + scores
-            while len(row) < 4: row.append("-")
-            grid.append(row)
-            
-        ws.append_rows(grid)
-
-    def run_offseason_progression(self):
-        print("\n🍂 INITIATING OFFSEASON PROGRESSION (Block 27) 🍂")
-        
-        current_year = 2026 
-        self.log_season_history(current_year)
-        
-        for team_name, roster in self.rosters.items():
-            for flat_player in roster:
-                player_obj = self._build_team_object(team_name, "SP1").defense.get(flat_player.get("Game Pos", "DH"))
-                if not player_obj: 
-                    player_obj = Player(flat_player["ID"], flat_player["Name"], {"development": {"age": flat_player["Age"], "peak_age": 27}, "batting": {}, "pitching": {}, "defense": {}, "baserunning": {}})
-                
-                for cat in ["Con.Timing", "Con.Barrel", "Pow.Str", "Pow.BatSpd", "Pow.Elev", "Disc.Eye", "Disc.Restr"]:
-                    player_obj.attributes["batting"][cat.split(".")[1].lower()] = flat_player.get(cat, 0)
-                for cat in ["Vel.ArmSpd", "Vel.Decept", "Ctrl.Acc", "Ctrl.Cmd", "Mov.Spin", "Mov.Bite"]:
-                    player_obj.attributes["pitching"][cat.split(".")[1].lower()] = flat_player.get(cat, 0)
-                for cat in ["def.Range", "Def.React", "Def.Glove", "Def.ArmStr", "Def.ArmAcc"]:
-                    player_obj.attributes["defense"][cat.lower()] = flat_player.get(cat, 0)
-                
-                player_obj.process_offseason_aging()
-                flat_player["Age"] += 1
-                
-                for cat, key in [("Con.Timing", "timing"), ("Con.Barrel", "barreling"), ("Pow.Str", "strength"), ("Pow.BatSpd", "bat_speed"), ("Pow.Elev", "elevation"), ("Disc.Eye", "eye"), ("Disc.Restr", "restraint")]:
-                    flat_player[cat] = player_obj.attributes["batting"].get(key, flat_player.get(cat))
-                for cat, key in [("Vel.ArmSpd", "arm_speed"), ("Vel.Decept", "deception"), ("Ctrl.Acc", "accuracy"), ("Ctrl.Cmd", "command"), ("Mov.Spin", "spin_rate"), ("Mov.Bite", "bite")]:
-                    flat_player[cat] = player_obj.attributes["pitching"].get(key, flat_player.get(cat))
-        
-        self.export_all()
-        self.generate_draft_class()
-        print("Offseason complete! Ready for next season.")
-
-    def generate_draft_class(self):
-        print("\n🧬 GENERATING NEW DRAFT CLASS...")
-        ws = SHEET.worksheet("Draft Class")
-        ws.clear()
-    
-        first_names = ["Jackson", "Liam", "Noah", "Aiden", "Caden", "Grayson", "Lucas", "Mason", "Oliver", "Elijah"]
-        last_names = ["Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller", "Davis", "Rodriguez", "Martinez"]
-        positions = ["C", "1B", "2B", "3B", "SS", "LF", "CF", "RF", "P", "P", "P"]
-    
-        pitching_traits = ["Marathon Man", "Escape Artist", "Groundball Guru", "Putaway Pitcher", "Rubber Arm", "Ice in the Veins", "Pitch to Contact", "Lights Out"]
-        hitting_traits = ["Clutch", "Table Setter", "First Pitch Killer", "Gold Glover", "Speed Demon", "Unfazed", "Platoon Punisher", "Launch Angle God"]
-    
-        headers = ["ID", "Name", "Pos", "Age", "Arch", "Trait1", "Trait2", "Trait3", "TraitCount"] + \
-              ["Con.Timing", "Con.Barrel", "Pow.Str", "Pow.BatSpd", "Pow.Elev", "Disc.Eye", "Disc.Restr", 
-               "Spd.Sprint", "Spd.Inst", "def.Range", "Def.React", "Def.Glove", "Def.ArmStr", "Def.ArmAcc", 
-               "Vel.ArmSpd", "Vel.Decept", "Ctrl.Acc", "Ctrl.Cmd", "Mov.Spin", "Mov.Bite", "Max Stam", "Cur Stam"]
-    
-        grid = [headers]
-    
-        for i in range(50):
-            pos = random.choice(positions)
-            age = random.randint(18, 22)
-            name = f"{random.choice(first_names)} {random.choice(last_names)}"
-            pid = f"2027{str(i).zfill(8)}"
-        
-            player_traits = []
-            available_traits = pitching_traits.copy() if pos == "P" else hitting_traits.copy()
-        
-            if random.uniform(0, 100) <= 60.0:
-                t1 = random.choice(available_traits)
-                player_traits.append(t1)
-                available_traits.remove(t1)
-            
-                if random.uniform(0, 100) <= 25.0:
-                    t2 = random.choice(available_traits)
-                    player_traits.append(t2)
-                    available_traits.remove(t2)
-                
-                    if random.uniform(0, 100) <= 10.0:
-                        t3 = random.choice(available_traits)
-                        player_traits.append(t3)
-        
-            t1_col = player_traits[0] if len(player_traits) > 0 else "-"
-            t2_col = player_traits[1] if len(player_traits) > 1 else "-"
-            t3_col = player_traits[2] if len(player_traits) > 2 else "-"
-            t_count = len(player_traits)
-            
-            stats = [random.randint(35, 65) for _ in range(20)]
-            stam = random.randint(80, 100) if pos == "P" else 100
-            
-            row = [pid, name, pos, age, "Rookie", t1_col, t2_col, t3_col, t_count] + stats + [stam, stam]
-            grid.append(row)
-            
-        ws.append_rows(grid)
-        print("✅ 50 Prospects (with Traits!) exported to 'Draft Class' tab!")
+        reporter.export_all(self, SHEET)
 
     def simulate_next_block(self):
-        block = self.get_current_sim_block()
+        block = season.get_current_sim_block(self)
 
         print(f"\n" + "="*50)
         print(f"INITIATING SIM-STATE BLOCK {block}")
@@ -884,19 +346,19 @@ class SimulationEngine:
                 self._run_daily_slate(is_bye=(i == bye_day_index))
                 
         elif block == 26:
-            self.simulate_playoff_block()
+            season.simulate_playoff_block(self, SHEET)
             
         elif block == 27:
-            self.run_offseason_progression()
+            season.run_offseason_progression(self, SHEET)
         else:
             print("\nSeason has fully concluded. Please reset your Standings to start a new year.")
 
 def run_live_test_environment():
     print("BASEBALL FRANCHISE CLI")
     engine = SimulationEngine()
-    engine.load_state()
+    builder.load_state(engine, SHEET)
     
-    current_block = engine.get_current_sim_block()
+    current_block = season.get_current_sim_block(engine)
     print(f"\nReady to manually trigger Sim-State Block {current_block}")
     
     input("\nPress ENTER to run the current block (or CTRL+C to quit)...")

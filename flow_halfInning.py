@@ -1,37 +1,50 @@
+# ==========================================
+# flow_half_inning.py
+# ==========================================
+# Manages the micro-level game state for a single half-inning,
+# including baserunning, live at-bat loops, and bullpen calls.
+# ==========================================
 import random
 from engine import AtBatSimulator
 
 class HalfInning:
-    # Manages the game state for a single half-inning. 
     def __init__(self, batting_team, fielding_team, league_env, inning_num, is_top, away_score, home_score, game_events, game_instance=None, weather=None, hr_record_target_away=0, hr_record_target_home=0):
+        # --- TEAMS & ENVIRONMENT ---
         self.batting_team = batting_team
         self.fielding_team = fielding_team
         self.env = league_env
+        self.weather = weather if weather else {"temp": 70, "wind_speed": 0, "wind_direction": "Calm", "precipitation": "None"}
+        
+        # --- GAME STATE CONTEXT ---
         self.inning_num = inning_num
         self.is_top = is_top
         self.away_score = away_score
         self.home_score = home_score
         self.game_events = game_events
         self.game_instance = game_instance 
-        self.weather = weather if weather else {"temp": 70, "wind_speed": 0, "wind_direction": "Calm", "precipitation": "None"}
+        
+        # --- INNING TRACKERS ---
         self.pitcher = fielding_team.pitcher
         self.defense = fielding_team.defense
         self.outs = 0
         self.runs = 0
         self.bases = {1: None, 2: None, 3: None}
         self.errors_in_inning = 0
+        
+        # --- MILESTONE TARGETS ---
         self.hr_record_target_away = hr_record_target_away
         self.hr_record_target_home = hr_record_target_home
 
-    # --- PHASE 3: LIVE MILESTONE CHECKER ---
+    # ==========================================
+    # MILESTONE & LOGGING SYSTEM
+    # ==========================================
     def check_in_game_milestone(self, player, stat_type, season_stat_value):
         if not hasattr(player, 'career_context'): return None
         
         career_total = player.career_context.get(stat_type, 0) + season_stat_value
         alerts = []
         
-        # --- 1. THE EXPANDED MILESTONE DICTIONARY ---
-        # Add any numbers here you want the engine to celebrate
+        # The Expanded Milestone Dictionary
         milestone_thresholds = {
             "HR": [1, 10, 50, 75, 100, 150, 200, 250, 300, 350, 400, 450, 500],
             "H":  [1, 100, 250, 400, 500, 750, 1000, 1500, 2000],
@@ -43,7 +56,6 @@ class HalfInning:
         }
         
         if stat_type in milestone_thresholds and career_total in milestone_thresholds[stat_type]:
-            # Custom broadcast text for their very first one
             if career_total == 1:
                 alerts.append(f"FIRST CAREER {stat_type}! {player.name} gets on the board!")
             else:
@@ -76,7 +88,6 @@ class HalfInning:
             entering_streak = batter.attributes.get("current_hit_streak", 0)
             new_streak = entering_streak + 1
             
-            # Announce major streak thresholds
             if new_streak in [10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60] or (new_streak > 60 and new_streak % 5 == 0):
                 msg = f"Hit Streak extended to {new_streak} games!"
                 if new_streak == 50:
@@ -89,15 +100,16 @@ class HalfInning:
         """Formats and appends the event for the Google Sheets payload."""
         half_str = "Top" if self.is_top else "Bottom"
         
-        # Assign the correct team name based on the event type
         if event_type in ["Pitching Milestone", "Defensive Milestone"]:
             team_name = self.fielding_team.name
         else:
             team_name = self.batting_team.name
             
-        # 6-column array structure for the Sheet
         self.game_events.append([self.inning_num, half_str, team_name, event_type, player_name, description])
 
+    # ==========================================
+    # CORE ENGINE LOOP
+    # ==========================================
     def play(self):
         """The main loop that runs until 3 outs are recorded or a walk-off occurs."""
         frame = "Top" if self.is_top else "Bottom"
@@ -110,7 +122,7 @@ class HalfInning:
         last_ab_was_hr = False
         
         while self.outs < 3:
-            # PITCHING CHANGE LOGIC
+            # --- 1. PITCHING CHANGE LOGIC ---
             max_stam = self.pitcher.attributes.get('pitching', {}).get('stamina', 100)
             curr_stam = getattr(self.pitcher, 'current_stamina', max_stam)
             stam_pct = (curr_stam / max_stam) * 100
@@ -139,11 +151,10 @@ class HalfInning:
                     self.call_to_bullpen(failsafe_role=role)
                     last_ab_was_hr = False 
 
-            # AT-BAT LOGIC
+            # --- 2. AT-BAT INITIALIZATION ---
             batter = self.batting_team.get_next_batter()
             print(f"\nUp to bat: {batter.name} | Outs: {self.outs} | Bases: {self.get_bases_string()}")
 
-            # 1. LOG DEBUTS
             if getattr(batter, 'is_rookie', False) and batter.stats["batting"]["PA"] == 0:
                 print(f"DEBUT ALERT: {batter.name} steps into the box for his first career at-bat!")
                 self.log_event("Debut", batter.name, "Welcome to the show! First career at-bat.")
@@ -152,12 +163,12 @@ class HalfInning:
             p_bat = batter.stats["batting"]
             p_pit = self.pitcher.stats["pitching"]
             
-            # --- WEATHER INJECTED INTO ENGINE ---
+            # --- 3. ATBAT RESOLUTION ---
             sim = AtBatSimulator(batter, self.pitcher, league_env=self.env, half_inning=self, is_home_batting=not self.is_top, weather=self.weather)
             outcome = sim.simulate_at_bat(defense=self.defense)
             event = outcome.get("event")
 
-            # PITCH COUNT TRACKER
+            # Pitch Count Tracker
             if "pitches" in outcome: ab_pitches = outcome["pitches"]
             else:
                 if event == "Strikeout": ab_pitches = random.randint(3, 7)
@@ -175,14 +186,13 @@ class HalfInning:
                 for log_entry in outcome["log"]:
                     print(f"    {log_entry}")
             
-            # INNING ENDING STEAL LOGIC
+            # --- 4. ENGINE OUTCOME PARSER ---
             if event == "Inning Ending Steal":
                 self.batting_team.batter_index -= 1
                 if self.batting_team.batter_index < 0:
                     self.batting_team.batter_index = len(self.batting_team.lineup) - 1
                 break 
 
-            # STAT DISTRIBUTION & RBI LOGIC
             t_bat["PA"] += 1
             p_bat["PA"] += 1
             
@@ -192,7 +202,6 @@ class HalfInning:
                 t_pit["K"] += 1; p_pit["K"] += 1
                 print(f"  Result: Strikeout.")
                 
-                # 2. LOG PITCHING STRIKEOUT MILESTONES
                 milestone = self.check_in_game_milestone(self.pitcher, "K", p_pit["K"])
                 if milestone:
                     for m in milestone:
@@ -238,7 +247,6 @@ class HalfInning:
                         t_bat["H"] += 1; p_bat["H"] += 1
                         t_pit["H"] += 1; p_pit["H"] += 1
                         
-                        # 3. LOG BATTING HIT MILESTONES (Infield Hit)
                         self.register_hit_milestones(batter, p_bat)
                         milestone = self.check_in_game_milestone(batter, "H", p_bat["H"])
                         if milestone:
@@ -266,7 +274,6 @@ class HalfInning:
                                     r_speed = runner.attributes.get('baserunning', {}).get('sprint_speed', 75)
                                     print(f"  > {runner.name} tags up from third!")
                                     
-                                    # --- WEATHER INJECTED INTO TAG-UP CALC ---
                                     tag = sim.resolve_tag_up(r_speed, f_arm_str, distance, "Home", location)
                                     if tag["safe"]:
                                         print(f"  > {tag['reason']}")
@@ -303,7 +310,6 @@ class HalfInning:
                             t_pit["H"] += 1; p_pit["H"] += 1
                             t_pit["HR"] += 1; p_pit["HR"] += 1
                             
-                            # 4. LOG BATTING HR/HIT MILESTONES
                             milestone_h = self.check_in_game_milestone(batter, "H", p_bat["H"])
                             if milestone_h:
                                 for m in milestone_h:
@@ -331,7 +337,6 @@ class HalfInning:
                             t_bat["H"] += 1; p_bat["H"] += 1
                             t_pit["H"] += 1; p_pit["H"] += 1
                             
-                            # 5. LOG BATTING HIT MILESTONES (1B, 2B, 3B)
                             milestone = self.check_in_game_milestone(batter, "H", p_bat["H"])
                             if milestone:
                                 for m in milestone:
@@ -341,7 +346,7 @@ class HalfInning:
                             hit_location = outcome.get("location", "Center")
                             self.process_hit_advancement(batter, hit_type, hit_location)
             
-            # THE RBI CALCULATOR
+            # --- 5. RBI & SCORING CALCULATIONS ---
             runs_scored_on_play = self.runs - runs_at_start_of_ab
             
             if runs_scored_on_play > 0:
@@ -352,7 +357,6 @@ class HalfInning:
                     p_bat["RBI"] += rbi_awarded
                     t_bat["RBI"] += rbi_awarded
                     
-                    # 6. LOG RBI MILESTONES
                     milestone_rbi = self.check_in_game_milestone(batter, "RBI", p_bat["RBI"])
                     if milestone_rbi:
                         for m in milestone_rbi:
@@ -366,10 +370,9 @@ class HalfInning:
                 if hit_type == "HR": desc = f"{batter.name} hits a Home Run to {location}{rbi_text}"
                 else: desc = f"{batter.name} hits a {hit_type} to {location}{rbi_text}"
                 
-                # 7. LOG SCORING PLAYS
                 self.log_event("Scoring Play", batter.name, desc)
             
-            # WALK-OFF CHECK
+            # Walk-Off Check
             if not self.is_top and self.inning_num >= 9:
                 if (self.home_score + self.runs) > self.away_score:
                     print(f"\n  *** WALK-OFF WINNER! {self.batting_team.name} WIN! ***")
@@ -380,13 +383,16 @@ class HalfInning:
         self.batting_team.linescore.append(self.runs)
         print(f"\n--- {frame} {self.inning_num} OVER | Runs Scored: {self.runs} ---")
 
-        # HALF-INNING STAMINA DEDUCTION (BATTERS ONLY)
+        # Half-Inning Stamina Deduction (Batters Only)
         for team in [self.batting_team, self.fielding_team]:
             for player in team.lineup:  
                 max_stam = player.attributes.get('batting', {}).get('stamina', 100)
                 curr_stam = getattr(player, 'current_stamina', max_stam)
                 player.current_stamina = max(0, curr_stam - 1)
 
+    # ==========================================
+    # CORE BASERUNNING & TRACKING HELPERS
+    # ==========================================
     def record_out(self):
         self.outs += 1
         self.fielding_team.stats["pitching"]["Outs"] += 1
@@ -406,7 +412,6 @@ class HalfInning:
         if self.game_instance:
             self.game_instance.evaluate_run_scored(self)
 
-    # BASERUNNING HELPERS
     def get_bases_string(self):
         b1 = "1B" if self.bases[1] else "--"
         b2 = "2B" if self.bases[2] else "--"
@@ -430,7 +435,7 @@ class HalfInning:
         self.score_run(batter)
 
     def process_hit_advancement(self, batter, hit_type, hit_location="Center"):
-        # DYNAMIC OUTFIELDER ARM EXTRACTION
+        # Dynamic Outfielder Arm Extraction
         if hit_location in ["Left Field Line", "Dead Left Field", "Left Center Gap"]: pos = "LF"
         elif hit_location == "Dead Center": pos = "CF"
         else: pos = "RF"
@@ -459,7 +464,6 @@ class HalfInning:
                 
                 print(f"  > {runner.name} rounds third, heading for home!")
                 
-                # --- WEATHER INJECTED INTO EXTRA BASE ATTEMPTS ---
                 sim = AtBatSimulator(batter, self.pitcher, league_env=self.env, half_inning=self, is_home_batting=not self.is_top, weather=self.weather)
                 outcome = sim.resolve_extra_base_attempt(runner_sprint, fielder_arm_str, fielder_arm_acc, hit_location, "Home")
                 
@@ -508,7 +512,86 @@ class HalfInning:
                 self.bases[2] = None
                 
             self.bases[1] = batter
+
+    def process_infield_grounder(self, batter, outcome):
+        target_base = outcome.get("target_base", 1)
+        is_safe = outcome["safe"]
+        is_dp = outcome.get("double_play", False)
+        runner_held = outcome.get("runner_held", False)
+        fielder_pos = outcome["hit_data"]["target_position"]
+        
+        if is_dp:
+            self.record_out() 
+            self.record_out() 
+
+            self.record_fielding_stat(fielder_pos, "A")
+            self.record_fielding_stat(target_base, "PO")
+            if target_base == 2:
+                self.record_fielding_stat("2B", "A") 
+                self.record_fielding_stat("1B", "PO")
             
+            if target_base == 2: 
+                if self.bases[3]: self.score_run(self.bases[3])
+                if self.bases[2]: self.bases[3] = self.bases[2]
+                self.bases[2] = None
+                self.bases[1] = None 
+                
+            elif target_base == 3: 
+                if self.bases[3]: self.score_run(self.bases[3])
+                if self.bases[1]: self.bases[2] = self.bases[1] 
+                self.bases[3] = None
+                self.bases[1] = None
+                
+            elif target_base == 4: 
+                if self.bases[2]: self.bases[3] = self.bases[2]
+                if self.bases[1]: self.bases[2] = self.bases[1]
+                self.bases[1] = None
+
+        elif not is_safe:
+            self.record_out()
+            self.record_fielding_stat(fielder_pos, "A")
+            self.record_fielding_stat(target_base, "PO")
+            
+            if target_base == 1:
+                if runner_held: pass 
+                else:
+                    if self.bases[3]: self.score_run(self.bases[3])
+                    if self.bases[2]: self.bases[3] = self.bases[2]
+                    if self.bases[1]: self.bases[2] = self.bases[1]
+                    self.bases[1] = None
+            else:
+                if target_base == 2:
+                    if self.bases[3]: self.score_run(self.bases[3])
+                    if self.bases[2]: self.bases[3] = self.bases[2]
+                    self.bases[1] = batter 
+                elif target_base == 3:
+                    if self.bases[3]: self.score_run(self.bases[3])
+                    self.bases[2] = self.bases[1]
+                    self.bases[1] = batter
+                elif target_base == 4:
+                    self.bases[3] = self.bases[2]
+                    self.bases[2] = self.bases[1]
+                    self.bases[1] = batter
+                    
+        else:
+            self.advance_all_forced(batter)
+
+    def record_fielding_stat(self, position, stat_type):
+        if isinstance(position, int):
+            base_map = {1: "1B", 2: "2B", 3: "3B", 4: "C"}
+            position = base_map.get(position, "P")
+
+        fielder = self.defense.get(position)
+        if fielder:
+            fielder.stats["defense"][stat_type] += 1
+            fielder.stats["defense"]["TC"] += 1
+            
+        self.fielding_team.stats["defense"][stat_type] += 1
+        self.fielding_team.stats["defense"]["TC"] += 1
+
+    # ==========================================
+    # BULLPEN MANAGEMENT
+    # ==========================================
     def call_to_bullpen(self, failsafe_role=None):
         self.fielding_team.used_pitchers.append(self.pitcher)
         print(f"\n  *** PITCHING CHANGE ***")
@@ -588,304 +671,3 @@ class HalfInning:
 
         bullpen.remove(chosen_pitcher)
         return chosen_pitcher
-            
-    def process_infield_grounder(self, batter, outcome):
-        target_base = outcome.get("target_base", 1)
-        is_safe = outcome["safe"]
-        is_dp = outcome.get("double_play", False)
-        runner_held = outcome.get("runner_held", False)
-        fielder_pos = outcome["hit_data"]["target_position"]
-        
-        if is_dp:
-            self.record_out() 
-            self.record_out() 
-
-            self.record_fielding_stat(fielder_pos, "A")
-            self.record_fielding_stat(target_base, "PO")
-            if target_base == 2:
-                self.record_fielding_stat("2B", "A") 
-                self.record_fielding_stat("1B", "PO")
-            
-            if target_base == 2: 
-                if self.bases[3]: self.score_run(self.bases[3])
-                if self.bases[2]: self.bases[3] = self.bases[2]
-                self.bases[2] = None
-                self.bases[1] = None 
-                
-            elif target_base == 3: 
-                if self.bases[3]: self.score_run(self.bases[3])
-                if self.bases[1]: self.bases[2] = self.bases[1] 
-                self.bases[3] = None
-                self.bases[1] = None
-                
-            elif target_base == 4: 
-                if self.bases[2]: self.bases[3] = self.bases[2]
-                if self.bases[1]: self.bases[2] = self.bases[1]
-                self.bases[1] = None
-
-        elif not is_safe:
-            self.record_out()
-            self.record_fielding_stat(fielder_pos, "A")
-            self.record_fielding_stat(target_base, "PO")
-            
-            if target_base == 1:
-                if runner_held: pass 
-                else:
-                    if self.bases[3]: self.score_run(self.bases[3])
-                    if self.bases[2]: self.bases[3] = self.bases[2]
-                    if self.bases[1]: self.bases[2] = self.bases[1]
-                    self.bases[1] = None
-            else:
-                if target_base == 2:
-                    if self.bases[3]: self.score_run(self.bases[3])
-                    if self.bases[2]: self.bases[3] = self.bases[2]
-                    self.bases[1] = batter 
-                elif target_base == 3:
-                    if self.bases[3]: self.score_run(self.bases[3])
-                    self.bases[2] = self.bases[1]
-                    self.bases[1] = batter
-                elif target_base == 4:
-                    self.bases[3] = self.bases[2]
-                    self.bases[2] = self.bases[1]
-                    self.bases[1] = batter
-                    
-        else:
-            self.advance_all_forced(batter)
-
-    def record_fielding_stat(self, position, stat_type):
-        if isinstance(position, int):
-            base_map = {1: "1B", 2: "2B", 3: "3B", 4: "C"}
-            position = base_map.get(position, "P")
-
-        fielder = self.defense.get(position)
-        if fielder:
-            fielder.stats["defense"][stat_type] += 1
-            fielder.stats["defense"]["TC"] += 1
-            
-        self.fielding_team.stats["defense"][stat_type] += 1
-        self.fielding_team.stats["defense"]["TC"] += 1
-
-class FullGame:
-    """Manages the 9-inning game flow between two Team objects."""
-    
-    def __init__(self, away_team, home_team, league_env, weather=None, career_stats=None, hr_record_target_away=0, hr_record_target_home=0):
-        self.away = away_team
-        self.home = home_team
-        self.env = league_env
-        self.inning = 1
-        self.game_events = []
-        
-        # --- NEW INJECTIONS ---
-        self.weather = weather if weather else {"temp": 70, "wind_speed": 0, "wind_direction": "Calm", "precipitation": "None"}
-        self.career_stats = career_stats if career_stats else {}
-        
-        self.current_lead = "Tie"
-        self.away_por = self.away.pitcher 
-        self.home_por = self.home.pitcher 
-        
-        self.away_starter = self.away.pitcher
-        self.home_starter = self.home.pitcher
-
-        # --- PHASE 3 PRE-GAME STAT LOAD ---
-        # We attach the career snapshot to each player right before the game starts
-        for team in [self.away, self.home]:
-            for player in team.lineup + [team.pitcher] + team.bullpen:
-                pid = str(player.player_id)
-                player.career_context = self.career_stats.get(pid, {
-                    "H": 0, "HR": 0, "RBI": 0, "K": 0, "W": 0, "SV": 0, "IP": 0.0
-                }).copy()
-
-    def evaluate_run_scored(self, half_inning_obj):
-        away_live = self.away.stats["batting"]["R"] + (half_inning_obj.runs if half_inning_obj.is_top else 0)
-        home_live = self.home.stats["batting"]["R"] + (half_inning_obj.runs if not half_inning_obj.is_top else 0)
-        
-        new_lead = "Tie"
-        if away_live > home_live: new_lead = "Away"
-        elif home_live > away_live: new_lead = "Home"
-
-        if new_lead != self.current_lead:
-            if self.current_lead != "Tie":
-                pitcher_who_blew_it = self.home.pitcher if self.current_lead == "Home" else self.away.pitcher
-                if getattr(pitcher_who_blew_it, 'is_in_save_situation', False):
-                    pitcher_who_blew_it.stats["pitching"]["BS"] += 1
-                    pitcher_who_blew_it.is_in_save_situation = False 
-                    print(f"  [BLOWN SAVE] {pitcher_who_blew_it.name} surrenders the lead!")
-
-            if new_lead == "Away":
-                self.away_por = self.away.pitcher
-                self.home_por = self.home.pitcher
-            elif new_lead == "Home":
-                self.home_por = self.home.pitcher
-                self.away_por = self.away.pitcher
-                
-            self.current_lead = new_lead
-
-    def award_pitching_decisions(self):
-        if self.away.stats["batting"]["R"] > self.home.stats["batting"]["R"]:
-            winner_team, loser_team = self.away, self.home
-            winning_pitcher, losing_pitcher = self.away_por, self.home_por
-            winner_starter = self.away_starter 
-        else:
-            winner_team, loser_team = self.home, self.away
-            winning_pitcher, losing_pitcher = self.home_por, self.away_por
-            winner_starter = self.home_starter
-
-        if winning_pitcher == winner_starter and winning_pitcher.stats["pitching"]["Outs"] < 15:
-            relievers = [p for p in winner_team.used_pitchers + [winner_team.pitcher] if p != winner_starter]
-            if relievers: winning_pitcher = max(relievers, key=lambda p: p.stats["pitching"]["Outs"])
-
-        winning_pitcher.stats["pitching"]["W"] += 1
-        losing_pitcher.stats["pitching"]["L"] += 1
-        
-        winning_pitcher.game_decision = "W"
-        losing_pitcher.game_decision = "L"
-
-        winning_relievers = [p for p in winner_team.used_pitchers + [winner_team.pitcher] 
-                             if p != winner_starter and p != winning_pitcher]
-        
-        for p in winning_relievers:
-            if getattr(p, 'is_in_save_situation', False):
-                if p == winner_team.pitcher: 
-                    p.stats["pitching"]["SV"] += 1
-                    p.game_decision = "SV" 
-                else: 
-                    p.stats["pitching"]["HLD"] += 1
-                    p.game_decision = "H"  
-
-    def play_game(self):
-        print(f"\n========== PLAY BALL! ==========")
-        print(f"{self.away.name} vs. {self.home.name}")
-        print(f"================================\n")
-        
-        while self.inning <= 9 or self.away.stats["batting"]["R"] == self.home.stats["batting"]["R"]:
-            
-            top_half = HalfInning(self.away, self.home, self.env, self.inning, True, 
-                                  self.away.stats["batting"]["R"], self.home.stats["batting"]["R"], 
-                                  self.game_events, self, weather=self.weather)  # <-- Changed here
-            top_half.play()
-            
-            if self.inning >= 9 and self.home.stats["batting"]["R"] > self.away.stats["batting"]["R"]:
-                self.home.linescore.append(None)
-                break
-                
-            bottom_half = HalfInning(self.home, self.away, self.env, self.inning, False, 
-                                     self.away.stats["batting"]["R"], self.home.stats["batting"]["R"], 
-                                     self.game_events, self, weather=self.weather) # <-- Changed here
-            bottom_half.play()
-            
-            self.inning += 1
-            
-        print(f"\n========== BALLGAME ==========")
-        print(f"FINAL SCORE: {self.away.name} {self.away.stats['batting']['R']} - {self.home.name} {self.home.stats['batting']['R']}")
-        
-        self.award_pitching_decisions()
-        print(f"==============================\n")
-    
-    def check_milestones(self):
-        milestones = []
-        
-        for team, opponent in [(self.away, self.home), (self.home, self.away)]:
-            # --- PITCHING POST-GAME MILESTONES ---
-            # Use a set to grab unique pitchers. If length is 1, it's a Complete Game.
-            unique_pitchers = list(set(team.game_pitchers))
-            is_cg = False
-            
-            if len(unique_pitchers) == 1:
-                sp = unique_pitchers[0]
-                # Initialize the keys safely just in case
-                sp.stats["pitching"]["CG"] = sp.stats["pitching"].get("CG", 0)
-                sp.stats["pitching"]["SHO"] = sp.stats["pitching"].get("SHO", 0)
-
-                # A pitcher must record at least 24 outs (8 innings) for a loss CG, or 27 for a win CG
-                if sp.stats["pitching"]["Outs"] >= 24:
-                    is_cg = True
-                    sp.stats["pitching"]["CG"] += 1
-                    if opponent.stats["batting"]["R"] == 0:
-                        sp.stats["pitching"]["SHO"] += 1
-                        if opponent.stats["batting"]["H"] == 0:
-                            if opponent.stats["batting"]["BB"] == 0 and opponent.stats["batting"]["HBP"] == 0 and team.stats["defense"]["E"] == 0:
-                                milestones.append(f"PERFECT GAME: {sp.name} pitches a Perfect Game!")
-                            else:
-                                milestones.append(f"NO-HITTER: {sp.name} throws a No-Hitter!")
-                        else:
-                            milestones.append(f"COMPLETE GAME SHUTOUT: {sp.name} goes the distance and blanks the opponent!")
-                    else:
-                        milestones.append(f"COMPLETE GAME: {sp.name} pitches a complete game victory.")
-            
-            if not is_cg:
-                # Combined Efforts
-                if opponent.stats["batting"]["H"] == 0:
-                    if opponent.stats["batting"]["BB"] == 0 and opponent.stats["batting"]["HBP"] == 0 and team.stats["defense"]["E"] == 0:
-                        milestones.append(f"COMBINED PERFECT GAME: {team.name} pitching staff!")
-                    else:
-                        milestones.append(f"COMBINED NO-HITTER: {team.name} pitching staff!")
-                elif opponent.stats["batting"]["R"] == 0:
-                    milestones.append(f"SHUTOUT: {team.name} pitching staff blanks the opponent.")
-
-            # --- BATTING POST-GAME MILESTONES ---
-            for player in team.lineup:
-                stats = player.stats["batting"]
-                
-                if stats["1B"] >= 1 and stats["2B"] >= 1 and stats["3B"] >= 1 and stats["HR"] >= 1:
-                    milestones.append(f"CYCLE: {player.name} hits for the cycle!")
-                if stats["HR"] >= 4: milestones.append(f"4-HR GAME: {player.name} hits {stats['HR']} home runs!")
-                if stats["RBI"] >= 8: milestones.append(f"8-RBI GAME: {player.name} drives in {stats['RBI']} runs!")
-                if stats["H"] >= 5: milestones.append(f"5-HIT GAME: {player.name} collects {stats['H']} hits!")
-
-        return milestones
-    
-    def generate_sheets_payload(self):
-        """Builds a 2D array containing the Box Score and Game Log for Google Sheets."""
-        
-        # 1. Setup the Box Score Header
-        payload = [
-            ["DiamondBucs Simulation Engine"],
-            ["Team", "1", "2", "3", "4", "5", "6", "7", "8", "9", "R", "H", "E"]
-        ]
-        
-        # Helper to handle extra innings or unplayed bottom of the 9th
-        def format_linescore(linescore, innings):
-            padded = linescore.copy()
-            while len(padded) < innings:
-                padded.append("")
-            return padded
-
-        innings_played = max(9, self.inning - 1)
-        away_line = format_linescore(self.away.linescore, innings_played)
-        home_line = format_linescore(self.home.linescore, innings_played)
-
-        # If the home team walked it off, or didn't need the bottom of the 9th
-        if len(home_line) < len(away_line):
-            home_line.append("X")
-
-        # 2. Append the Linescores
-        payload.append([self.away.name] + away_line + [
-            self.away.stats["batting"]["R"], 
-            self.away.stats["batting"]["H"], 
-            self.away.stats["defense"]["E"]
-        ])
-        
-        payload.append([self.home.name] + home_line + [
-            self.home.stats["batting"]["R"], 
-            self.home.stats["batting"]["H"], 
-            self.home.stats["defense"]["E"]
-        ])
-        
-        # 3. Add End-of-Game Milestones (Cycles, No-Hitters, etc.)
-        post_game_milestones = self.check_milestones()
-        for m in post_game_milestones:
-            # We use "Final" for the inning since it's a post-game calculation
-            self.game_events.append(["Final", "End", "League", "Game Milestone", "Team/Staff", m])
-
-        # 4. Append the Filtered Event Log below the Box Score
-        payload.append([])
-        payload.append(["--- NOTABLE GAME EVENTS ---"])
-        payload.append(["Inning", "Half", "Team", "Event Type", "Player", "Play Description"])
-        
-        if not self.game_events:
-            payload.append(["", "", "", "No notable events recorded.", "", ""])
-        else:
-            for event in self.game_events:
-                payload.append(event)
-                
-        return payload

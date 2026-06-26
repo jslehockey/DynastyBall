@@ -1,5 +1,5 @@
 import random
-from models import Player
+from model_player import Player
 from Pfactory import PlayerFactory 
 
 # ==========================================

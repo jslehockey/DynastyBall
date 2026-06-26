@@ -1,5 +1,3 @@
-# game_math.py
-
 def compress_rating(rating):
     """Normalizes player ratings around 75 to prevent extreme blowouts."""
     if rating >= 75:

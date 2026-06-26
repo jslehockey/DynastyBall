@@ -1,7 +1,9 @@
 import random
 import gspread
-from models import Player, Team, LeagueEnvironment
-from game_flow import FullGame
+from model_player import Player
+from model_team import Team
+from model_league import LeagueEnvironment
+from flow_fullGame import FullGame
 from Pfactory import PlayerFactory
 
 # --- CONFIGURATION ---

@@ -2,19 +2,13 @@ import random
 from datetime import datetime, timedelta
 
 def generate_initial_decision_time(fa_start_time):
-    """
-    Distributes initial decision times randomly across the first 48 hours 
-    of Free Agency in 15-minute intervals.
-    """
+    # Distributes initial decision times randomly across the first 48 hours of Free Agency in 15-minute intervals.
     total_intervals = 48 * 4
     random_interval = random.randint(1, total_intervals)
     return fa_start_time + timedelta(minutes=(random_interval * 15))
 
 def reroll_decision_time(current_sim_time, fa_start_time):
-    """
-    Calculates the next time a player checks their offers if they had none,
-    or if they rejected all lowball offers.
-    """
+    # Calculates the next time a player checks their offers if they had none, or if they rejected all lowball offers.
     hours_into_fa = (current_sim_time - fa_start_time).total_seconds() / 3600
     
     if hours_into_fa < 48:
@@ -35,7 +29,7 @@ class FreeAgencySimulation:
         self.active = False
 
     def start_free_agency(self):
-        """Initializes the FA period and sets everyone's first clock."""
+        #Initializes the FA period and sets everyone's first clock.
         self.active = True
         for player in self.free_agents:
             player.next_decision_time = generate_initial_decision_time(self.fa_start_time)
@@ -43,10 +37,8 @@ class FreeAgencySimulation:
         print(f"Free Agency has officially opened at {self.fa_start_time.strftime('%Y-%m-%d %H:%M')}!")
 
     def tick(self, minutes_to_advance=15):
-        """
-        Advances the simulation clock by a set number of minutes.
-        Evaluates any players whose decision time has arrived.
-        """
+        # Advances the simulation clock by a set number of minutes.
+        # Evaluates any players whose decision time has arrived.
         if not self.active:
             return
 
