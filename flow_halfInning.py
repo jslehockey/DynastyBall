@@ -156,8 +156,17 @@ class HalfInning:
             print(f"\nUp to bat: {batter.name} | Outs: {self.outs} | Bases: {self.get_bases_string()}")
 
             if getattr(batter, 'is_rookie', False) and batter.stats["batting"]["PA"] == 0:
-                print(f"DEBUT ALERT: {batter.name} steps into the box for his first career at-bat!")
-                self.log_event("Debut", batter.name, "Welcome to the show! First career at-bat.")
+                # Check if this is the inaugural 2026 season by looking at the league environment or game instance
+                is_inaugural_year = False
+                if self.game_instance and hasattr(self.game_instance, 'league_env'):
+                    # If your league_env tracks the year, use it. Otherwise, default to True for now.
+                    current_year = getattr(self.game_instance.league_env, 'current_year', 2026)
+                    is_inaugural_year = (current_year == 2026)
+                
+                # Only announce debuts if we are past the inaugural season
+                if not is_inaugural_year:
+                    print(f"DEBUT ALERT: {batter.name} steps into the box for his first career at-bat!")
+                    self.log_event("Debut", batter.name, "Welcome to the show! First career at-bat.")
             
             runs_at_start_of_ab = self.runs 
             p_bat = batter.stats["batting"]
@@ -281,6 +290,8 @@ class HalfInning:
                                         self.bases[3] = None
                                         p_bat["RBI"] += 1
                                         t_bat["AB"] -= 1; p_bat["AB"] -= 1
+                                        t_bat["SF"] = t_bat.get("SF", 0) + 1
+                                        p_bat["SF"] = p_bat.get("SF", 0) + 1
                                     else:
                                         print(f"  > {tag['reason']} (Double Play!)" if self.outs == 2 else f"  > {tag['reason']}")
                                         self.record_out()
@@ -522,8 +533,10 @@ class HalfInning:
         
         if is_dp:
             self.record_out() 
-            self.record_out() 
+            self.record_out()
 
+            batter.stats["batting"]["GIDP"] = batter.stats["batting"].get("GIDP", 0) + 1
+            self.batting_team.stats["batting"]["GIDP"] = self.batting_team.stats["batting"].get("GIDP", 0) + 1
             self.record_fielding_stat(fielder_pos, "A")
             self.record_fielding_stat(target_base, "PO")
             if target_base == 2:
@@ -577,14 +590,36 @@ class HalfInning:
             self.advance_all_forced(batter)
 
     def record_fielding_stat(self, position, stat_type):
+        # 1. Handle integer bases (1, 2, 3, 4)
         if isinstance(position, int):
             base_map = {1: "1B", 2: "2B", 3: "3B", 4: "C"}
             position = base_map.get(position, "P")
 
-        fielder = self.defense.get(position)
+        # 2. BULLETPROOF TRANSLATION MAP
+        # Catches full words, hit locations, or slight variations and forces standard abbreviations
+        safety_map = {
+            "Catcher": "C", "First Base": "1B", "First Baseman": "1B",
+            "Second Base": "2B", "Second Baseman": "2B",
+            "Third Base": "3B", "Third Baseman": "3B",
+            "Shortstop": "SS", "Left Field": "LF", "Left Fielder": "LF",
+            "Center Field": "CF", "Center Fielder": "CF", "Center": "CF",
+            "Right Field": "RF", "Right Fielder": "RF", "Pitcher": "P",
+            "Dead Center": "CF", "Left Center Gap": "CF", "Right Center Gap": "CF",
+            "Left Field Line": "LF", "Right Field Line": "RF"
+        }
+        
+        # If the position matches a long word, convert it. Otherwise, keep it as is.
+        clean_position = safety_map.get(position, position)
+
+        # 3. Look up the fielder in the team's defense dictionary
+        fielder = self.defense.get(clean_position)
+        
         if fielder:
             fielder.stats["defense"][stat_type] += 1
             fielder.stats["defense"]["TC"] += 1
+        else:
+            # ---> ADD THIS PRINT STATEMENT <---
+            print(f" 🚨 FIELDING ERROR: The engine tried to give a stat to '{clean_position}', but the team's valid positions are: {list(self.defense.keys())}")
             
         self.fielding_team.stats["defense"][stat_type] += 1
         self.fielding_team.stats["defense"]["TC"] += 1

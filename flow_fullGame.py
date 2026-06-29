@@ -31,7 +31,9 @@ class FullGame:
             for player in team.lineup + [team.pitcher] + team.bullpen:
                 pid = str(player.player_id)
                 player.career_context = self.career_stats.get(pid, {
-                    "H": 0, "HR": 0, "RBI": 0, "K": 0, "W": 0, "SV": 0, "IP": 0.0
+                    # Added HBP, SF, and GIDP to the baseline tracking
+                    "H": 0, "HR": 0, "RBI": 0, "K": 0, "W": 0, "SV": 0, "IP": 0.0,
+                    "HBP": 0, "SF": 0, "GIDP": 0 
                 }).copy()
 
     # ==========================================

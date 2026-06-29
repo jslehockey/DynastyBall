@@ -108,6 +108,7 @@ def load_state(engine, SHEET):
     
     engine.standings = {team: {"W": 0, "L": 0, "RS": 0, "RA": 0} for team in engine.teams}
 
+    # Initialize ALL stat tracking keys for the engine
     for team in engine.teams:
         records = SHEET.worksheet(team).get_all_records()
         engine.rosters[team] = records
@@ -125,36 +126,75 @@ def load_state(engine, SHEET):
             pid = str(player["ID"])
             engine.player_stats[pid] = {
                 "ID": pid, "Name": player["Name"], "Team": team, "Pos": player["Pos"],
-                "G": 0, "AB": 0, "H": 0, "HR": 0, "RBI": 0, "R": 0, "AVG": ".000",
-                "IP": 0, "ER": 0, "K": 0, "BB": 0, "ERA": "0.00",
-                "CG": 0, "SHO": 0
+                "G": 0, "PA": 0, "AB": 0, "R": 0, "H": 0, "1B": 0, "2B": 0, "3B": 0, "HR": 0, 
+                "RBI": 0, "BB": 0, "HBP": 0, "K_bat": 0, "SB": 0, "CS": 0, "SF": 0, "GIDP": 0,
+                # CHANGED IP TO Outs_pit
+                "Outs_pit": 0, "H_allowed": 0, "R_allowed": 0, "ER": 0, "HR_allowed": 0, 
+                "BB_allowed": 0, "HBP_allowed": 0, "K_pit": 0, "W": 0, "L": 0, "SV": 0, 
+                "HLD": 0, "BS": 0, "Pitches": 0, "CG": 0, "SHO": 0,
+                "PO": 0, "A": 0, "E": 0, "TC": 0
             }
 
     load_stadium_dimensions(engine, SHEET)
 
+    # Load existing Hitting Stats
     try:
-        stat_log_records = SHEET.worksheet("Stats").get_all_records()
-        for row in stat_log_records:
+        h_records = SHEET.worksheet("HStats").get_all_records()
+        for row in h_records:
             pid = str(row.get("ID", ""))
             if pid in engine.player_stats:
                 s = engine.player_stats[pid]
-                s["G"] = int(row.get("G", 0) or 0)
-                s["AB"] = int(row.get("AB", 0) or 0)
-                s["H"] = int(row.get("H", 0) or 0)
-                s["HR"] = int(row.get("HR", 0) or 0)
-                s["RBI"] = int(row.get("RBI", 0) or 0)
-                s["R"] = int(row.get("R", 0) or 0)
-                s["IP"] = float(row.get("IP", 0) or 0.0)
-                s["ER"] = int(row.get("ER", 0) or 0)
-                s["K"] = int(row.get("K", 0) or 0)
-                s["BB"] = int(row.get("BB", 0) or 0)
-                s["CG"] = int(row.get("CG", 0) or 0)
-                s["SHO"] = int(row.get("SHO", 0) or 0)
+                for key in ["G", "PA", "AB", "R", "H", "1B", "2B", "3B", "HR", "RBI", "BB", "HBP", "SB", "CS", "SF", "GIDP"]:
+                    if key == "K": s["K_bat"] = int(row.get("K", 0) or 0)
+                    else: s[key] = int(row.get(key, 0) or 0)
+    except Exception: pass
+    
+    # Load existing Pitching Stats
+    try:
+        p_records = SHEET.worksheet("PStats").get_all_records()
+        for row in p_records:
+            pid = str(row.get("ID", ""))
+            if pid in engine.player_stats:
+                s = engine.player_stats[pid]
                 
-    except Exception: 
-        stat_log_records = []
-        
-    engine.record_book = RecordBook(stat_log_records)
+                # FIXED: Parse the "12.2" string back into raw Outs!
+                ip_raw = str(row.get("IP", "0.0"))
+                if '.' in ip_raw:
+                    innings, partial = ip_raw.split('.')
+                    s["Outs_pit"] = (int(innings) * 3) + int(partial)
+                else:
+                    s["Outs_pit"] = int(float(ip_raw) * 3)
+                    
+                for key in ["W", "L", "SV", "HLD", "BS", "ER", "CG", "SHO", "Pitches"]:
+                    s[key] = int(row.get(key, 0) or 0)
+                s["H_allowed"] = int(row.get("H", 0) or 0)
+                s["R_allowed"] = int(row.get("R", 0) or 0)
+                s["HR_allowed"] = int(row.get("HR", 0) or 0)
+                s["BB_allowed"] = int(row.get("BB", 0) or 0)
+                s["HBP_allowed"] = int(row.get("HBP", 0) or 0)
+                s["K_pit"] = int(row.get("K", 0) or 0)
+                
+                # Ensure Pitchers get their G count if they only pitched
+                s["G"] = max(s["G"], int(row.get("G", 0) or 0))
+    except Exception: pass
+    
+    # Load existing Fielding Stats
+    try:
+        f_records = SHEET.worksheet("FStats").get_all_records()
+        for row in f_records:
+            pid = str(row.get("ID", ""))
+            if pid in engine.player_stats:
+                s = engine.player_stats[pid]
+                for key in ["PO", "A", "E", "TC"]:
+                    s[key] = int(row.get(key, 0) or 0)
+                # Ensure Fielders get their G count
+                s["G"] = max(s["G"], int(row.get("G", 0) or 0))
+    except Exception: pass
+
+    # For the RecordBook, we still want to pass some list of records. We can pass the h_records if they exist.
+    try: h_records = SHEET.worksheet("HStats").get_all_records()
+    except Exception: h_records = []
+    engine.record_book = RecordBook(h_records)
 
     try:
         std_records = SHEET.worksheet("Standings").get_all_records()
@@ -224,16 +264,23 @@ def build_team_object(engine, team_name, starting_pitcher_role):
         
         role = attributes["role"]
         game_pos = attributes["game_pos"]
-        
-        if role.isdigit() and 1 <= int(role) <= 9: hitters.append((int(role), player))
-        elif game_pos == "P":
-            if role == starting_pitcher_role: starting_pitcher = player
-            elif role not in ["Bench", "Minors"]: bullpen.append(player)
-
-        if game_pos and game_pos not in ["DH", "P", "Bench", "Minors"]:
-            defense[game_pos] = player
             
-    if starting_pitcher: defense["P"] = starting_pitcher
+            # 1. STARTING HITTERS & FIELDERS
+        if role.isdigit() and 1 <= int(role) <= 9: 
+            hitters.append((int(role), player))
+                
+                # ---> THE FIX: Only put them in the field if they are starting! <---
+            if game_pos and game_pos not in ["DH", "P"]:
+                defense[game_pos] = player
+                    
+            # 2. PITCHERS
+        elif game_pos == "P":
+            if role == starting_pitcher_role: 
+                starting_pitcher = player
+            elif role not in ["Bench", "Minors"]: 
+                bullpen.append(player)
+
+        if starting_pitcher: defense["P"] = starting_pitcher
 
     hitters.sort(key=lambda x: x[0])
     lineup = [h[1] for h in hitters][:9]

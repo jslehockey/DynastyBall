@@ -261,17 +261,39 @@ class SimulationEngine:
                 s = self.player_stats[pid]
                 b_stats = obj_player.stats["batting"]
                 p_stats = obj_player.stats["pitching"]
+                f_stats = obj_player.stats.get("defense", {"PO": 0, "A": 0, "E": 0, "TC": 0})
                 
-                if b_stats["PA"] > 0 or p_stats["Outs"] > 0: s["G"] += 1
-                s["AB"] += b_stats["AB"]; s["H"] += b_stats["H"]
-                s["HR"] += b_stats["HR"]; s["RBI"] += b_stats["RBI"]; s["R"] += b_stats["R"]
+                # --- FIXED: Accumulate Games Played ---
+                # Now checks if a pitcher threw even a single pitch
+                if b_stats["PA"] > 0 or p_stats["Pitches"] > 0 or f_stats["TC"] > 0: 
+                    s["G"] += 1
                 
-                s["IP"] += p_stats["Outs"] / 3.0; s["ER"] += p_stats["ER"]
-                s["K"] += p_stats["K"]; s["BB"] += p_stats["BB"]
+                # --- Accumulate Batting ---
+                for key in ["PA", "AB", "R", "H", "1B", "2B", "3B", "HR", "RBI", "BB", "HBP", "SB", "CS", "SF", "GIDP"]:
+                    s[key] += b_stats.get(key, 0)
+                s["K_bat"] += b_stats.get("K", 0) 
                 
-                s["CG"] = s.get("CG", 0) + p_stats.get("CG", 0)
-                s["SHO"] = s.get("SHO", 0) + p_stats.get("SHO", 0)
+                # --- FIXED: Accumulate Pitching ---
+                # Track raw outs, NOT decimal IP!
+                s["Outs_pit"] = s.get("Outs_pit", 0) + p_stats["Outs"]
+                for key in ["W", "L", "SV", "HLD", "BS", "ER", "CG", "SHO", "Pitches"]:
+                    s[key] += p_stats.get(key, 0)
+                s["H_allowed"] += p_stats.get("H", 0)
+                s["R_allowed"] += p_stats.get("R", 0)
+                s["HR_allowed"] += p_stats.get("HR", 0)
+                s["BB_allowed"] += p_stats.get("BB", 0)
+                s["HBP_allowed"] += p_stats.get("HBP", 0)
+                s["K_pit"] += p_stats.get("K", 0)
+
+                # ---> ADD THIS PRINT STATEMENT <---
+                if f_stats["TC"] > 0:
+                    print(f" 📊 EXTRACTING STATS: {obj_player.name} recorded {f_stats['TC']} Total Chances this game.")
+
+                # --- Accumulate Fielding ---
+                for key in ["PO", "A", "E", "TC"]:
+                    s[key] += f_stats.get(key, 0)
             
+            # --- STREAK & FORM TRACKING (Preserved) ---
             b_stats = obj_player.stats["batting"]
             if b_stats["PA"] > 0:
                 new_form = f"{b_stats['H']}-{b_stats['AB']}"
@@ -303,6 +325,7 @@ class SimulationEngine:
                     obj_player.longest_scoreless_outs = max(obj_player.current_scoreless_outs, obj_player.longest_scoreless_outs)
                 else: obj_player.current_scoreless_outs = 0
 
+            # --- UPDATE FLATTENED ROSTER ---
             for flat_player in self.rosters[team_name]:
                 if str(flat_player["ID"]) == pid:
                     max_stam = flat_player.get("Max Stam", 100)

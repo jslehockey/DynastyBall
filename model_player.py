@@ -62,7 +62,8 @@ class Player:
                 "PA": 0, "AB": 0, "R": 0, "H": 0, 
                 "1B": 0, "2B": 0, "3B": 0, "HR": 0,
                 "RBI": 0, "BB": 0, "HBP": 0, "K": 0,
-                "SB": 0, "CS": 0
+                "SB": 0, "CS": 0,
+                "SF": 0, "GIDP": 0
             },
             "pitching": {
                 "Outs": 0, "H": 0, "R": 0, "ER": 0, "HR": 0,
