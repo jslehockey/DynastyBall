@@ -296,11 +296,18 @@ class SimulationEngine:
             # --- STREAK & FORM TRACKING (Preserved) ---
             b_stats = obj_player.stats["batting"]
             if b_stats["PA"] > 0:
-                new_form = f"{b_stats['H']}-{b_stats['AB']}"
+                # NEW: Calculate an offensive Game Score instead of just H/AB
+                g_score = (b_stats.get('1B', 0) * 1) + (b_stats.get('2B', 0) * 2) + (b_stats.get('3B', 0) * 3) + (b_stats.get('HR', 0) * 4)
+                g_score += b_stats.get('BB', 0) + b_stats.get('HBP', 0) 
+                g_score -= b_stats.get('K', 0) # Penalize strikeouts
+                
+                new_form = str(g_score)
+                
                 form_list = [g.strip() for g in obj_player.recent_form_str.split(',') if g.strip()]
                 form_list.append(new_form)
                 obj_player.recent_form_str = ", ".join(form_list[-5:])
 
+                # Keep standard streak tracking
                 if b_stats["H"] > 0:
                     obj_player.current_hit_streak += 1
                     obj_player.longest_hit_streak = max(obj_player.current_hit_streak, obj_player.longest_hit_streak)
@@ -313,14 +320,19 @@ class SimulationEngine:
                 else: obj_player.current_obp_streak = 0
 
             p_stats = obj_player.stats["pitching"]
-            if p_stats["Outs"] > 0:
-                ip_str = f"{p_stats['Outs'] // 3}.{p_stats['Outs'] % 3}"
-                new_form = f"{ip_str}-{p_stats['ER']}"
+            if p_stats["Outs"] > 0 or p_stats["Pitches"] > 0:
+                # NEW: Pitcher Game Score
+                p_score = p_stats["Outs"] + p_stats["K"]
+                p_score -= (p_stats["ER"] * 2) + p_stats["BB"] + p_stats.get("HBP", 0)
+                
+                # We save it as "Score-Outs" so we can calculate a rate
+                new_form = f"{p_score}-{p_stats['Outs']}"
+                
                 form_list = [g.strip() for g in obj_player.recent_form_str.split(',') if g.strip()]
                 form_list.append(new_form)
                 obj_player.recent_form_str = ", ".join(form_list[-5:])
 
-                if p_stats["ER"] == 0:
+                if p_stats["ER"] == 0 and p_stats["Outs"] > 0:
                     obj_player.current_scoreless_outs += p_stats["Outs"]
                     obj_player.longest_scoreless_outs = max(obj_player.current_scoreless_outs, obj_player.longest_scoreless_outs)
                 else: obj_player.current_scoreless_outs = 0
@@ -340,7 +352,7 @@ class SimulationEngine:
                     break
 
     def _run_daily_slate(self, is_bye):
-        season.recover_daily_stamina(self)
+        season.recover_daily_stamina(self, is_bye=is_bye)
         if is_bye:
             print(f"\n[LEAGUE BYE DAY] All teams are resting and recovering stamina.")
         else:
@@ -352,7 +364,12 @@ class SimulationEngine:
         reporter.export_all(self, SHEET)
 
     def simulate_next_block(self):
+        # This is the line that was missing! It defines the 'block' variable.
         block = season.get_current_sim_block(self)
+        # NEW: Calculate the current day based on games played so the schedule rotates!
+        # Assuming 8 teams playing every active day, total wins+losses / 8 = active days played.
+        total_games_played = sum([self.standings[t]["W"] + self.standings[t]["L"] for t in self.teams])
+        self.current_day = int(total_games_played / (len(self.teams) / 2))
 
         print(f"\n" + "="*50)
         print(f"INITIATING SIM-STATE BLOCK {block}")
@@ -368,10 +385,18 @@ class SimulationEngine:
             for i in range(4):
                 self._run_daily_slate(is_bye=(i == bye_day_index))
                 
+        # --- UPDATED PLAYOFF AND OFFSEASON STRUCTURE ---
         elif block == 26:
-            season.simulate_playoff_block(self, SHEET)
+            print(f"Format: Playoff Round 1 (Semifinals)")
+            # You may need to pass a round identifier to your season module
+            season.simulate_playoff_block(self, SHEET, playoff_round=1)
             
         elif block == 27:
+            print(f"Format: Playoff Round 2 (Championship)")
+            season.simulate_playoff_block(self, SHEET, playoff_round=2)
+            
+        elif block == 28:
+            print(f"Format: Offseason Progression & Regression")
             season.run_offseason_progression(self, SHEET)
         else:
             print("\nSeason has fully concluded. Please reset your Standings to start a new year.")

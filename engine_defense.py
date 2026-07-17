@@ -191,7 +191,7 @@ def resolve_defense(sim, hit_data, defense):
                         "reason": f"Top play! {position} lays out and makes a {out_type.lower()} ({hit_data['distance']}ft)!"
                     }
             else:
-                dive_error_prob = 25.0 * ((100 - effective_glove) / 50.0)
+                dive_error_prob = 4.25 * ((100 - effective_glove) / 50.0)
                 if sim.weather.get("precipitation") == "Rain": dive_error_prob *= 1.20
                     
                 if random.uniform(0, 100) < dive_error_prob:
@@ -223,7 +223,7 @@ def resolve_defense(sim, hit_data, defense):
                 "reason": f"Hit! Drops in or gets past the {position} ({hit_data['distance']}ft)."
             }
 
-    base_error_prob = 12.0 * ((100 - effective_glove) / 50.0) ** 1.25
+    base_error_prob = 8.5 * ((100 - effective_glove) / 50.0) ** 1.25
     
     if hit_data["trajectory"] == "Player-Height Line Drive": error_prob = base_error_prob * 2.0  
     elif hit_data["trajectory"] in ["Fly Ball", "Pop Up"]: error_prob = base_error_prob * 0.2  
@@ -310,7 +310,7 @@ def resolve_infield_throw(sim, hit_data, fielder_arm_str, fielder_arm_acc, batte
         runner_speed += 7
 
     effective_arm_acc = max(50, min(100, fielder_arm_acc))
-    throw_error_prob = 12.0 * ((100 - effective_arm_acc) / 50.0) ** 1.25
+    throw_error_prob = 8.5 * ((100 - effective_arm_acc) / 50.0) ** 1.25
     
     if distance > 110: throw_error_prob *= 1.5 
     elif distance < 70: throw_error_prob *= 0.5 

@@ -171,9 +171,20 @@ def main():
     
     print("Beginning Franchise Generation...")
     
-    for i in range(1, 9):
-        team_name = f"Team{i}"
-        
+    # --- DYNAMIC TEAM REGISTRY PULL ---
+    registry_ws = SHEET.worksheet("TeamRegistry")
+    
+    # get_all_records() automatically uses the first row as dictionary keys
+    registry_records = registry_ws.get_all_records()
+    
+    # Extract nicknames, ensuring we only generate for teams marked "Active"
+    team_names = [row['Nickname'] for row in registry_records if row.get('Status') == 'Active']
+    
+    if not team_names:
+        print("No active teams found in TeamRegistry.")
+        return
+
+    for team_name in team_names:
         franchise_roster = build_franchise(factory, team_name)
         print(f"Generated 52-man Franchise block for {team_name}...")
         
@@ -183,13 +194,16 @@ def main():
             team_rows.append(row)
             all_players_data.append(row)
             
-        ws = SHEET.worksheet(team_name)
-        ws.clear()
-        ws.append_row(headers)
-        ws.append_rows(team_rows)
-        print(f"Successfully exported {team_name} to Sheets.")
-        
-    all_players_ws = SHEET.worksheet("All")
+        try:
+            ws = SHEET.worksheet(team_name)
+            ws.clear()
+            ws.append_row(headers)
+            ws.append_rows(team_rows)
+            print(f"Successfully exported {team_name} to Sheets.")
+        except gspread.exceptions.WorksheetNotFound:
+            print(f"Warning: Tab for '{team_name}' not found. Skipping export for this team, but they will still appear in the 'All' tab.")
+            
+    all_players_ws = SHEET.worksheet("AllPlayers")
     all_players_ws.clear()
     all_players_ws.append_rows(all_players_data)
     print("\nFranchise Generation Complete! Master database updated.")

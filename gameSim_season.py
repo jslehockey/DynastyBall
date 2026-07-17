@@ -9,17 +9,34 @@ from model_player import Player
 import gameSim_reporter as reporter
 import gameSim_builder as builder
 
-def recover_daily_stamina(engine):
+def recover_daily_stamina(engine, is_bye=False):
     for roster in engine.rosters.values():
         for player in roster:
+            # 1. Extract Traits
             traits = [
                 str(player.get("Trait1", "")), 
                 str(player.get("Trait2", "")), 
                 str(player.get("Trait3", ""))
             ]
-            recovery_amount = 30 if "Rubber Arm" in traits else 23
+            
+            # 2. Determine Position
+            pos = str(player.get("Pos", "DH"))
+            game_pos = str(player.get("Game Pos", pos))
+            is_pitcher = (pos == "P" or game_pos == "P")
+            
+            # 3. Apply Your Custom Recovery Rates
+            if is_pitcher:
+                base_recovery = 30 if "Rubber Arm" in traits else 20
+            else:
+                base_recovery = 26  # All everyday batters
+                
+            # Apply the Bye Day rest bonus if the engine triggers it
+            recovery_amount = base_recovery * 2 if is_bye else base_recovery
+            
+            # 4. Cap at Maximum
             max_stam = int(player.get("Max Stam", 100))
             cur_stam = int(player.get("Cur Stam", 100))
+            
             player["Cur Stam"] = min(max_stam, cur_stam + recovery_amount)
 
 def get_current_sim_block(engine):
@@ -149,17 +166,23 @@ def generate_draft_class(SHEET):
     print("✅ 50 Prospects (with Traits!) exported to 'Draft Class' tab!")
 
 def run_offseason_progression(engine, SHEET):
-    print("\n🍂 INITIATING OFFSEASON PROGRESSION (Block 27) 🍂")
+    print("\n🍂 INITIATING OFFSEASON PROGRESSION (Block 28) 🍂")
     
     current_year = 2026 
     reporter.log_season_history(engine, SHEET, current_year)
     
     for team_name, roster in engine.rosters.items():
         for flat_player in roster:
+            
+            # 1. Build or retrieve the player object
             player_obj = builder.build_team_object(engine, team_name, "SP1").defense.get(flat_player.get("Game Pos", "DH"))
             if not player_obj: 
-                player_obj = Player(flat_player["ID"], flat_player["Name"], {"development": {"age": flat_player["Age"], "peak_age": 27}, "batting": {}, "pitching": {}, "defense": {}, "baserunning": {}})
+                player_obj = Player(flat_player["ID"], flat_player["Name"], {
+                    "development": {"age": flat_player["Age"], "peak_age": 27}, 
+                    "batting": {}, "pitching": {}, "defense": {}, "baserunning": {}
+                })
             
+            # 2. Map flat dictionary values to the object attributes
             for cat in ["Con.Timing", "Con.Barrel", "Pow.Str", "Pow.BatSpd", "Pow.Elev", "Disc.Eye", "Disc.Restr"]:
                 player_obj.attributes["batting"][cat.split(".")[1].lower()] = flat_player.get(cat, 0)
             for cat in ["Vel.ArmSpd", "Vel.Decept", "Ctrl.Acc", "Ctrl.Cmd", "Mov.Spin", "Mov.Bite"]:
@@ -167,13 +190,44 @@ def run_offseason_progression(engine, SHEET):
             for cat in ["def.Range", "Def.React", "Def.Glove", "Def.ArmStr", "Def.ArmAcc"]:
                 player_obj.attributes["defense"][cat.lower()] = flat_player.get(cat, 0)
             
-            player_obj.process_offseason_aging()
+            # ============================================================
+            # 3. PRE-ALPHA OVERRIDE: Age-Based Progression & Regression
+            # ============================================================
+            age = flat_player.get("Age", 25)
+            
+            def apply_modifiers(category_dict):
+                for attr, val in category_dict.items():
+                    if not isinstance(val, (int, float)): continue
+                    
+                    if age <= 26:
+                        # Progress 1 to 3 points (Capped at 99)
+                        category_dict[attr] = min(99, val + random.randint(1, 3))
+                    elif age > 33:
+                        # Regress 1 to 3 points (Floor of 1)
+                        category_dict[attr] = max(1, val - random.randint(1, 3))
+
+            # Execute modifications across the loaded dictionaries
+            apply_modifiers(player_obj.attributes["batting"])
+            apply_modifiers(player_obj.attributes["pitching"])
+            apply_modifiers(player_obj.attributes["defense"])
+            # ============================================================
+
+            # Run existing aging method if it handles other logic (like stamina decay)
+            if hasattr(player_obj, "process_offseason_aging"):
+                player_obj.process_offseason_aging()
+                
             flat_player["Age"] += 1
             
+            # 4. Map the modified attributes back to the flat dictionary
             for cat, key in [("Con.Timing", "timing"), ("Con.Barrel", "barreling"), ("Pow.Str", "strength"), ("Pow.BatSpd", "bat_speed"), ("Pow.Elev", "elevation"), ("Disc.Eye", "eye"), ("Disc.Restr", "restraint")]:
                 flat_player[cat] = player_obj.attributes["batting"].get(key, flat_player.get(cat))
+                
             for cat, key in [("Vel.ArmSpd", "arm_speed"), ("Vel.Decept", "deception"), ("Ctrl.Acc", "accuracy"), ("Ctrl.Cmd", "command"), ("Mov.Spin", "spin_rate"), ("Mov.Bite", "bite")]:
                 flat_player[cat] = player_obj.attributes["pitching"].get(key, flat_player.get(cat))
+                
+            # FIXED: Added the loop to map defense stats back so progression actually saves
+            for cat in ["def.Range", "Def.React", "Def.Glove", "Def.ArmStr", "Def.ArmAcc"]:
+                flat_player[cat] = player_obj.attributes["defense"].get(cat.lower(), flat_player.get(cat))
     
     reporter.export_all(engine, SHEET)
     generate_draft_class(SHEET)

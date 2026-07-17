@@ -144,29 +144,27 @@ class Player:
         games = [g.strip() for g in self.recent_form_str.split(',') if g.strip()]
         if not games: return 0
             
-        if self.primary_pos == "P":
+        if self.primary_pos == "P" or self.game_pos == "P":
+            total_score = 0
             total_outs = 0
-            total_er = 0
             for g in games:
                 try:
-                    ip_str, er_str = g.split('-')
-                    parts = ip_str.split('.')
-                    outs = int(parts[0]) * 3
-                    if len(parts) > 1: outs += int(parts[1])
-                    total_outs += outs
-                    total_er += int(er_str)
+                    score_str, outs_str = g.split('-')
+                    total_score += int(score_str)
+                    total_outs += int(outs_str)
                 except ValueError: continue
             
             if total_outs == 0: return 0
-            ip = total_outs / 3.0
-            era = (total_er * 9) / ip
             
-            if era <= 1.00: form_val = 3
-            elif era <= 2.50: form_val = 2
-            elif era <= 3.50: form_val = 1
-            elif era >= 7.00: form_val = -3
-            elif era >= 5.50: form_val = -2
-            elif era >= 4.50: form_val = -1
+            # Normalize to a "Points per 9 Innings (27 Outs)" scale
+            score_per_9 = (total_score / total_outs) * 27
+            
+            if score_per_9 >= 32.0: form_val = 3       # Dominant
+            elif score_per_9 >= 24.0: form_val = 2     # Great
+            elif score_per_9 >= 16.0: form_val = 1     # Good
+            elif score_per_9 <= -5.0: form_val = -3    # Getting shelled
+            elif score_per_9 <= 2.0: form_val = -2     # Very bad
+            elif score_per_9 <= 8.0: form_val = -1     # Struggling
             else: form_val = 0
             
             if form_val < 0 and "Ice in the Veins" in self.traits:
@@ -175,30 +173,25 @@ class Player:
             return form_val
             
         else:
-            total_h = 0
-            total_ab = 0
+            # Hitter Evaluation
+            total_score = 0
             for g in games:
-                try:
-                    h_str, ab_str = g.split('-')
-                    total_h += int(h_str)
-                    total_ab += int(ab_str)
+                try: total_score += int(g)
                 except ValueError: continue
                     
-            if total_ab == 0: return 0
-            avg = total_h / total_ab
-            
-            if avg >= 0.400: form_val = 3
-            elif avg >= 0.330: form_val = 2
-            elif avg >= 0.280: form_val = 1
-            elif avg <= 0.100: form_val = -3
-            elif avg <= 0.180: form_val = -2
-            elif avg <= 0.220: form_val = -1
+            if total_score >= 18: form_val = 3       # En fuego
+            elif total_score >= 12: form_val = 2     # Very Hot
+            elif total_score >= 6: form_val = 1      # Heating Up
+            elif total_score <= -5: form_val = -3    # Ice Cold
+            elif total_score <= -2: form_val = -2    # Slumping
+            elif total_score <= 1: form_val = -1     # Struggling
             else: form_val = 0
             
             if form_val < 0 and "Unfazed" in self.traits:
                 form_val = max(form_val, -1)
                 
             return form_val
+            
 
     # ==========================================
     # DYNAMIC MAIN STAT CALCULATORS (PROPERTIES)
@@ -342,19 +335,46 @@ class Player:
         return False
     
     def attempt_stat_growth(self, current_stat, age, peak_age):
+        # Stop growing entirely once they hit their peak
         if age >= peak_age: return current_stat 
 
-        distance_to_max = 99 - current_stat
-        base_growth_chance = (distance_to_max * 1.55) + 2.0 
-        years_left = peak_age - age 
-        age_multiplier = (years_left / 10.0) + 0.55 
-        final_prob = base_growth_chance * age_multiplier
+        # 1. The Governor: Check how much room they have left before their ceiling
+        distance_to_cap = self.potential - current_stat
+        
+        if distance_to_cap <= 0:
+            # If they hit their biological ceiling, only a tiny 2% chance to eke out 1 more point
+            if random.uniform(0, 100) < 2.0:
+                return min(99, current_stat + 1)
+            return current_stat
 
+        # 2. Base Probability: Further away from potential = higher chance to grow
+        # A player 30 points away from potential has a massive 75% baseline chance to learn
+        base_growth_chance = (distance_to_cap * 2.0) + 15.0 
+        
+        # 3. Age Accelerator: Young players absorb training much faster
+        if age <= 22: age_multiplier = 1.30
+        elif age <= 25: age_multiplier = 1.00
+        else: age_multiplier = 0.75 
+        
+        final_prob = min(95.0, base_growth_chance * age_multiplier)
+
+        # 4. The "Boom or Bust" Payload Dice Roll
         if random.uniform(0, 100) <= final_prob:
-            if random.uniform(0, 100) < 22.0: 
-                return min(99, current_stat + random.randint(3, 9))
+            roll = random.uniform(0, 100)
+            
+            if roll < 10.0:
+                # BOOM (10%): Massive breakout leap (The Superstar mechanic)
+                return min(99, current_stat + random.randint(7, 14))
+            elif roll < 20.0:
+                # BUST (10%): Plateau year (injury, bad mechanics, etc.)
+                return current_stat
+            elif roll < 50.0:
+                # SOLID (30%): Great developmental progress
+                return min(99, current_stat + random.randint(4, 7))
             else:
-                return min(99, current_stat + random.randint(1, 6))
+                # GRIND (50%): Standard minor progress
+                return min(99, current_stat + random.randint(1, 4))
+                
         return current_stat
 
     def evaluate_minor_league_season(self):

@@ -1,3 +1,6 @@
+# ==========================================
+# PFactory.py
+# ==========================================
 import random
 from model_player import Player
 
@@ -24,7 +27,7 @@ class PlayerFactory:
         self.pitching_traits = ["Marathon Man", "Escape Artist", "Groundball Guru", "Putaway Pitcher", "Rubber Arm", "Ice in the Veins", "Pitch to Contact", "Lights Out"]
         self.hitting_traits = ["Clutch", "Table Setter", "First Pitch Killer", "Gold Glover", "Speed Demon", "Unfazed", "Platoon Punisher", "Launch Angle God"]
         
-        # --- NEW: CONTRACT TRAIT POOL ---
+        # --- CONTRACT TRAIT POOL ---
         self.contract_traits = [
             "Loyalty", "MoneyHungry", "PlayingTime", "Performance",
             "SecuritySeeker", "BetOnYourself", "RingChaser", "Pioneer"
@@ -84,7 +87,7 @@ class PlayerFactory:
             "Zobrist":{"timing": 74, "barreling": 74, "strength": 71, "bat_speed": 74, "elevation": 68, "eye": 78, "restraint": 74, "sprint_speed": 71, "instincts": 71, "def.reaction": 71, "def.glove": 74, "def.ArmStr": 71, "def.ArmAcc": 71}
         }
 
-        # PITCHER ARCHETYPES (Reduced by ~5%, EXCEPT STAMINA)
+        # PITCHER ARCHETYPES
         self.sp_archetypes = {
             "Ryan":      {"arm_speed": 93, "deception": 82, "accuracy": 48, "command": 67, "spin_rate": 81, "bite": 71, "stamina": 92},
             "Maddux":    {"arm_speed": 52, "deception": 71, "accuracy": 91, "command": 87, "spin_rate": 76, "bite": 87, "stamina": 88},
@@ -114,61 +117,42 @@ class PlayerFactory:
         player_traits = []
         available = self.pitching_traits.copy() if is_pitcher else self.hitting_traits.copy()
 
-        # 60% chance for 1st trait
         if random.uniform(0, 100) <= 60.0:
             t1 = random.choice(available)
             player_traits.append(t1)
             available.remove(t1)
 
-            # 25% chance for 2nd trait
             if random.uniform(0, 100) <= 25.0:
                 t2 = random.choice(available)
                 player_traits.append(t2)
                 available.remove(t2)
 
-                # 10% chance for 3rd trait
                 if random.uniform(0, 100) <= 10.0:
                     t3 = random.choice(available)
                     player_traits.append(t3)
 
         return player_traits
 
-    # --- NEW HELPER: Contract & Free Agency Trait Generator ---
+    # --- HELPER: Contract & Free Agency Trait Generator ---
     def _generate_contract_trait(self):
-        
-        # [Loyalty, MoneyHungry, PlayingTime, Performance, SecuritySeeker, BetOnYourself, RingChaser, Pioneer]
         weights = [0.15, 0.30, 0.15, 0.15, 0.10, 0.05, 0.05, 0.05]
         return random.choices(self.contract_traits, weights=weights, k=1)[0]
     
     def _generate_initial_contract(self, age, stat_means_dict, league_tier):
-        """
-        Generates a realistic active contract for a newly created player.
-        """
-        # Estimate OVR from the stat_means to judge their tier
         avg_stat = sum(stat_means_dict.values()) / len(stat_means_dict)
-        
-        # Base salary logic similar to the expectation formula
         base_salary = 750000 + (max(0, (avg_stat - 55)) ** 2.5) * 3500
-        
-        # Scale for tier
         tier_multiplier = max(0.2, 1.0 - (0.4 * (league_tier - 1)))
         salary = int(base_salary * tier_multiplier)
         
-        # Determine contract length and how many years are left
         if age <= 23:
-            # Young players usually on rookie/team-control deals
             length = random.randint(3, 6)
-            salary = 750000 # League minimum for young guys
+            salary = 750000 
         elif age >= 34:
-            # Veterans on short deals
             length = random.randint(1, 2)
         else:
-            # Prime age players on standard deals
             length = random.randint(2, 5)
             
-        # Randomize how many years they have left on this generated deal (1 to max length)
         years_remaining = random.randint(1, length)
-        
         return length, years_remaining, salary
 
     def get_next_id(self):
@@ -178,6 +162,9 @@ class PlayerFactory:
     def generate_name(self):
         return f"{random.choice(self.first_names)} {random.choice(self.last_names)}"
 
+    # ==========================================
+    # HITTER GENERATOR
+    # ==========================================
     def generate_inaugural_hitter(self, target_pos="CF", is_expansion=True, is_minor=False, league_tier=1):
         player_id = self.get_next_id()
         name = self.generate_name()
@@ -191,37 +178,63 @@ class PlayerFactory:
         else:
             arch_name, stat_means = random.choice(list(self.general_archetypes.items()))
         
+        # --- NEW: Variable Prospect Tiers ---
+        if is_minor:
+            minor_mult = random.choices([0.95, 0.85, 0.725, 0.65, 0.50], weights=[0.10, 0.20, 0.30, 0.30, 0.10], k=1)[0]
+            std_dev = 10 
+        else:
+            minor_mult = 1.0 
+            std_dev = 6  
+
         current_stats = {}
         for stat, mean in stat_means.items():
             tier_mult = max(0.5, 1.0 - (0.07 * (league_tier - 1)))
-            minor_mult = 0.80 if is_minor else 1.0 
-            # NEW: 20% penalty for expansion startup teams
             expansion_mult = 0.87 if is_expansion else 1.0 
             
             effective_mean = mean * tier_mult * minor_mult * expansion_mult
             
-            val = int(random.gauss(effective_mean, 6))
-            # Lowered the floor to 45 so weak stats can actually be weak
-            current_stats[stat] = max(45, min(99, val))
+            val = int(random.gauss(effective_mean, std_dev))
+            current_stats[stat] = max(25, min(99, val))
 
-        # Generate correlated Defensive Range based on Sprint Speed
         sprint = current_stats.get("sprint_speed", 50)
         
-        # Positional tweaks: CF/SS are natural fielders, 1B/DH/C are not
         if target_pos in ["CF", "SS", "2B"]: range_modifier = random.randint(0, 4)
         elif target_pos in ["1B", "C", "DH"]: range_modifier = random.randint(-5, -1)
         else: range_modifier = random.randint(-2, 2)
         
-        current_stats["def.range"] = max(40, min(99, int(random.gauss(sprint + range_modifier, 4))))
+        current_stats["def.range"] = max(25, min(99, int(random.gauss(sprint + range_modifier, std_dev))))
 
         hitter_stam = int(random.gauss(75, 7))
-        hitter_stam = max(50, min(99, hitter_stam))
+        hitter_stam = max(25, min(99, hitter_stam))
 
-        # --- GENERATE TRAITS ---
+        # --- NEW: Volatile Development Windows & Potential ---
+        peak_age = random.choices(
+            [random.randint(20, 23), random.randint(24, 28), random.randint(29, 33)],
+            weights=[0.20, 0.60, 0.20],
+            k=1
+        )[0]
+        
+        last_peak_age = peak_age + random.randint(2, 7)
+        
+        if is_minor:
+            if minor_mult == 0.95:
+                base_potential = 95  # Near-Phenom
+            elif minor_mult == 0.85:
+                base_potential = 88  # Generational
+            elif minor_mult == 0.725:
+                base_potential = 82  # High-End Prospect
+            elif minor_mult == 0.65:
+                base_potential = 78  # Solid Starter
+            else:
+                base_potential = 58  # Longshot
+        else:
+            base_potential = 75 
+            
+        generated_potential = max(50, min(99, int(random.gauss(base_potential, 8))))
+
         generated_traits = self._generate_traits(is_pitcher=False)
         generated_contract_trait = self._generate_contract_trait()
 
-        # Map the raw generated stats into their appropriate buckets
         attributes = {
             "bats": random.choice(["R", "R", "L", "S"]),
             "throws": random.choice(["R", "R", "R", "L"]),
@@ -248,23 +261,27 @@ class PlayerFactory:
             },
             "development": {
                 "age": age,
-                "peak_age": random.randint(27, 30),
-                "last_peak_age": random.randint(32, 36),
-                "archetype": arch_name
+                "peak_age": peak_age,
+                "last_peak_age": last_peak_age,
+                "archetype": arch_name,
+                "potential": generated_potential
             },
             "strategy": {"approach_slider": 3, "steal_2nd_slider": 3, "steal_3rd_slider": 3},
             "pitching": {"arm_speed": 30, "deception": 30, "accuracy": 30, "command": 30, "spin_rate": 30, "bite": 30, "stamina": 20},
             "Primary Pos": target_pos, 
             "Game Pos": target_pos,
             "traits": generated_traits,
-            "contract_trait": generated_contract_trait # Assigned here!
+            "contract_trait": generated_contract_trait
         }
         
         player_obj = Player(player_id, name, attributes)
         player_obj.traits = generated_traits
         player_obj.assigned_pos = target_pos
         return player_obj
-    
+
+    # ==========================================
+    # PITCHER GENERATOR
+    # ==========================================
     def generate_inaugural_pitcher(self, role="SP", is_expansion=True, is_minor=False, league_tier=1):
         player_id = self.get_next_id()
         name = self.generate_name()
@@ -281,34 +298,52 @@ class PlayerFactory:
 
         arch_name, stat_means = random.choice(list(pool.items()))
         
+        # --- NEW: Variable Prospect Tiers ---
+        if is_minor:
+            minor_mult = random.choices([0.90, 0.80, 0.65, 0.50], weights=[0.05, 0.20, 0.50, 0.25], k=1)[0]
+            std_dev = 10
+        else:
+            minor_mult = 1.0
+            std_dev = 6
+            
         current_stats = {}
         for stat, mean in stat_means.items():
             if stat == "stamina":
                 continue
             
             tier_mult = max(0.5, 1.0 - (0.07 * (league_tier - 1)))
-            minor_mult = 0.80 if is_minor else 1.0
-            # NEW: 20% penalty for expansion startup teams
             expansion_mult = 0.87 if is_expansion else 1.0
             
             effective_mean = mean * tier_mult * minor_mult * expansion_mult
             
-            # Lowered the floor to 35
-            current_stats[stat] = int(max(45, min(99, random.gauss(effective_mean, 6))))
+            current_stats[stat] = int(max(25, min(99, random.gauss(effective_mean, std_dev))))
 
         stamina = stat_means["stamina"]
         if role in ["MR", "LR"]: stamina = random.randint(40, 60)
         elif role in ["SU", "CL"]: stamina = random.randint(15, 30)
 
-        # --- GENERATE TRAITS ---
+        # --- NEW: Volatile Development Windows & Potential ---
+        peak_age = random.choices(
+            [random.randint(20, 23), random.randint(24, 28), random.randint(29, 33)],
+            weights=[0.20, 0.60, 0.20],
+            k=1
+        )[0]
+        
+        last_peak_age = peak_age + random.randint(2, 7)
+        
+        if is_minor:
+            base_potential = 90 if minor_mult == 0.90 else (80 if minor_mult == 0.80 else (70 if minor_mult == 0.65 else 55))
+        else:
+            base_potential = 75 
+            
+        generated_potential = max(45, min(99, int(random.gauss(base_potential, 8))))
+
         generated_traits = self._generate_traits(is_pitcher=True)
         generated_contract_trait = self._generate_contract_trait()
 
-        # Map the raw generated stats into the pitching bucket
         attributes = {
             "bats": random.choice(["R", "L"]), 
             "throws": random.choice(["R", "R", "R", "L"]),
-            # Dummy hitting/fielding stats for pitchers
             "batting": {"timing": 15, "barreling": 15, "strength": 15, "bat_speed": 15, "elevation": 15, "eye": 15, "restraint": 15, "stamina": 100},
             "baserunning": {"sprint_speed": random.randint(10, 30), "instincts": 15},
             "defense": {"def.range": 50, "def.reaction": 50, "def.glove": 50, "def.ArmStr": 60, "def.ArmAcc": 50},
@@ -323,16 +358,17 @@ class PlayerFactory:
             },
             "development": {
                 "age": age,
-                "peak_age": random.randint(27, 30),
-                "last_peak_age": random.randint(31, 35),
-                "archetype": arch_name
+                "peak_age": peak_age,
+                "last_peak_age": last_peak_age,
+                "archetype": arch_name,
+                "potential": generated_potential
             },
             "strategy": {"attack_slider": 3},
             "Primary Pos": "P",
             "Game Pos": "P",
             "role": role,
             "traits": generated_traits,
-            "contract_trait": generated_contract_trait # Assigned here!
+            "contract_trait": generated_contract_trait
         }
         
         player_obj = Player(player_id, name, attributes)
@@ -341,7 +377,6 @@ class PlayerFactory:
         return player_obj
 
     def generate_team_roster(self, team_name, is_expansion=True, league_tier=1):
-        # Explicitly build a structured defense rather than 9 random profiles
         positions = ["C", "1B", "2B", "3B", "SS", "LF", "CF", "RF", "DH"]
         lineup = [self.generate_inaugural_hitter(pos, is_expansion, is_minor=False, league_tier=league_tier) for pos in positions]
         
