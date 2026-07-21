@@ -1,0 +1,848 @@
+{% extends "base.html" %}
+
+{% block content %}
+    <style>
+        /* Global Table Text Reduction */
+        .table { font-size: 0.85rem; }
+        
+        /* Whiteboard Styles */
+        .whiteboard-container {
+            background-color: #fdfdfd;
+            border: 4px solid #222;
+            border-radius: 8px;
+            position: relative;
+            height: 400px;
+            width: 100%;
+            max-width: 650px;
+            margin: 0 auto 20px auto;
+            box-shadow: 3px 3px 10px rgba(0,0,0,0.15);
+        }
+        .wb-diamond {
+            position: absolute;
+            bottom: 40px;
+            left: 50%;
+            transform: translateX(-50%) rotate(45deg);
+            width: 160px;
+            height: 160px;
+            border: 2px solid rgba(0,0,0,0.2);
+        }
+        .wb-pos {
+            position: absolute;
+            transform: translateX(-50%);
+            text-align: center;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 4px;
+            border-radius: 6px;
+            border: 1px solid #ccc;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            min-width: 160px; 
+            z-index: 2; 
+        }
+        
+        .wb-pos select {
+            width: 100%;
+            text-align: center;
+            font-size: 0.85rem;
+        }
+        .wb-label {
+            font-size: 0.75rem;
+            font-weight: 800;
+            margin-bottom: 2px;
+            color: #333;
+            text-transform: uppercase;
+        }
+        .wb-dropdown {
+            font-size: 0.75rem;
+            font-weight: bold;
+            padding: 2px 16px 2px 4px;
+            height: 24px;
+            cursor: pointer;
+        }
+        
+        /* Positioning */
+        .wb-c  { bottom: 2%; left: 50%; }
+        .wb-p  { bottom: 30%; left: 50%; }
+        .wb-1b { bottom: 42%; left: 78%; }
+        .wb-2b { bottom: 58%; left: 65%; }
+        .wb-ss { bottom: 58%; left: 35%; }
+        .wb-3b { bottom: 42%; left: 22%; }
+        .wb-lf { top: 10%; left: 18%; }
+        .wb-cf { top: 4%; left: 50%; }
+        .wb-rf { top: 10%; left: 82%; }
+        .wb-dh { bottom: 2%; left: 15%; background: rgba(230,230,230,0.8); border-style: dashed; }
+
+        /* Neon Indicators & OOP Styling */
+        .wb-empty { background-color: #ff0033 !important; border-color: #cc0000 !important; color: white !important; }
+        .wb-oop { background-color: #ff8800 !important; border-color: #cc5500 !important; color: black !important; }
+        .wb-oop-row { background-color: rgba(255, 136, 0, 0.15) !important; transition: background-color 0.3s; }
+        .wb-oop-row td { background-color: transparent !important; }
+        
+        /* SP1 Neon Yellow Indicator */
+        .wb-sp1-row { background-color: rgba(220, 255, 20, 0.25) !important; transition: background-color 0.3s; }
+        .wb-sp1-row td { background-color: transparent !important; }
+
+        /* View Toggle Logic */
+        .show-ratings .view-stats { display: none !important; }
+        .show-stats .view-ratings { display: none !important; }
+        
+        .show-ratings #lbl-ratings { color: #111; font-weight: bold; }
+        .show-ratings #lbl-stats { color: #aaa; font-weight: normal; }
+        
+        .show-stats #lbl-stats { color: #111; font-weight: bold; }
+        .show-stats #lbl-ratings { color: #aaa; font-weight: normal; }
+
+        /* Drag placeholders */
+        .sortable-ghost { opacity: 0.4; background-color: #f0f0f0; }
+        
+        /* New Text sizing for sub ratings */
+        .sub-val-box { font-size: 0.75rem; }
+    </style>
+
+    <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{{ url_for('home') }}">Home</a></li>
+            <li class="breadcrumb-item active" aria-current="page">Major League Team</li>
+        </ol>
+    </nav>
+
+    <!-- The Whiteboard -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card shadow-sm border-0">
+                <div class="card-header card-header-dynamic fw-bold">
+                    📋 Manager's Defensive Whiteboard
+                </div>
+                <div class="card-body bg-light">
+                    <div class="whiteboard-container">
+                        <div class="wb-diamond"></div>
+                        
+                        <!-- Auto-generated Dropdowns -->
+                        {% for pos in ['C', '1B', '2B', '3B', 'SS', 'LF', 'CF', 'RF', 'DH'] %}
+                        <div class="wb-pos wb-{{ pos|lower }}">
+                            <div class="wb-label">{{ pos }}</div>
+                            <select class="form-select form-select-sm wb-dropdown" data-target-pos="{{ pos }}">
+                                <option value="">--</option>
+                            </select>
+                        </div>
+                        {% endfor %}
+                        
+                        <div class="wb-pos wb-p">
+                            <div class="wb-label">P</div>
+                            <div class="fw-bold fs-6 mt-1" id="wb-pitcher-name">--</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toggle Controls & Save Button -->
+    <div class="row mb-3">
+        <div class="col-12 d-flex justify-content-end align-items-center">
+            <span class="me-2 fs-5" id="lbl-ratings">Ratings</span>
+            <div class="form-check form-switch fs-4 mb-0">
+                <input class="form-check-input" type="checkbox" id="viewToggle" style="cursor: pointer;">
+            </div>
+            <span class="ms-2 fs-5" id="lbl-stats">Stats</span>
+            
+            <button class="btn btn-success ms-4 fw-bold" onclick="saveRoster()">💾 Save Roster</button>
+        </div>
+    </div>
+
+    <!-- Master Grid -->
+    <div class="row g-4 show-ratings" id="master-grid-container">
+        
+        <!-- SECTION 1: HITTERS -->
+        <div class="col-xl-7 col-lg-12">
+            <div class="card shadow-sm border-0 mb-4">
+                <div class="card-header card-header-dynamic fw-bold fs-5">
+                    ⚾ Hitters (Drag to Reorder)
+                </div>
+                <div class="card-body p-0 table-responsive">
+                    <table class="table table-hover align-middle mb-0" style="border-collapse: separate; border-spacing: 0 4px;">
+                        <thead class="table-light small text-uppercase">
+                            <tr>
+                                <th class="text-center" style="width: 5%;">#</th>
+                                <th class="text-center" style="width: 10%;">Pos</th>
+                                <th style="width: 18%;">Player</th>
+                                <th class="text-center" style="width: 7%;">Stam</th>
+                                
+                                <th class="view-ratings text-center p-0" style="width: 15%;">CON</th>
+                                <th class="view-ratings text-center p-0" style="width: 15%;">POW</th>
+                                <th class="view-ratings text-center p-0" style="width: 15%;">SPD</th>
+                                <th class="view-ratings text-center p-0" style="width: 15%;">DEF</th>
+
+                                <th class="view-stats text-center p-0" style="width: 12%;">H/AB</th>
+                                <th class="view-stats text-center p-0" style="width: 12%;">AVG</th>
+                                <th class="view-stats text-center p-0" style="width: 12%;">HR</th>
+                                <th class="view-stats text-center p-0" style="width: 12%;">RBI</th>
+                                <th class="view-stats text-center p-0" style="width: 12%;">OPS</th>
+                            </tr>
+                        </thead>
+                        
+                        <tbody id="lineup-list">
+                            {% for player in lineup %}
+                            <tr style="cursor: grab;" class="player-row" 
+                                data-name="{{ player.name }}" 
+                                data-natural-pos="{{ player.pos }}"
+                                data-assigned-pos="{{ player.assigned_pos|default('BENCH') }}"
+                                data-def="{{ player.defense }}"
+                                data-tip-stats="H/AB: {{ player.stat_h|default('0') }}/{{ player.stat_ab|default('0') }} | AVG: {{ player.stat_avg|default('.000') }} | HR: {{ player.stat_hr|default('0') }} | RBI: {{ player.stat_rbi|default('0') }} | OPS: {{ player.stat_ops|default('.000') }}"
+                                data-tip-ratings="CON: {{ player.con }} | POW: {{ player.pow }} | SPD: {{ player.spd }} | DEF: {{ player.defense }}">
+                                
+                                <td class="text-center fw-bold text-muted batting-order">{{ player.order }}</td>
+                                
+                                <td class="text-center">
+                                    <div class="fw-bold target-pos-text" style="color: #0d6efd; font-size: 0.9rem;">--</div>
+                                    <div class="text-muted" style="font-size: 0.65rem;">Actual: {{ player.pos }}</div>
+                                </td>
+                                
+                                <td class="fw-bold">{{ player.name }}</td>
+                                <td class="text-center fw-bold" style="color: {{ get_stamina_color(player.stam_cur, player.stam_tot) }};">
+                                    {{ player.stam_cur }}/{{ player.stam_tot }}
+                                </td>
+                                
+                                {% for stat_name, stat_val, stat_sub in [('con', player.con, player.con_sub), ('pow', player.pow, player.pow_sub), ('spd', player.spd, player.spd_sub), ('defense', player.defense, player.defense_sub)] %}
+                                <td class="view-ratings p-1 align-middle" data-stat="{{ stat_name }}">
+                                    <div class="d-flex h-100 border border-2 border-secondary rounded overflow-hidden shadow-sm" style="min-height: 48px;">
+                                        <div class="stat-main-val d-flex align-items-center justify-content-center fw-bold fs-6" style="width: 35%; background-color: {{ get_main_bg(stat_val) }}; color: {{ get_main_text(stat_val) }};">{{ stat_val }}</div>
+                                        <div class="d-flex w-100 border-start border-secondary">
+                                            {% for sub_label, sub_val in stat_sub %}
+                                                <div class="d-flex flex-column flex-grow-1 border-end border-opacity-25" style="background-color: {{ get_main_bg(sub_val) }}; color: {{ get_main_text(sub_val) }};">
+                                                    <div class="text-center w-100" style="font-size: 0.5rem; opacity: 0.8; border-bottom: 1px solid rgba(0,0,0,0.1);">{{ sub_label }}</div>
+                                                    <div class="d-flex align-items-center justify-content-center flex-grow-1 fw-bold sub-val-box sub-val-{{ stat_name }}" data-base-val="{{ sub_val }}">{{ sub_val }}</div>
+                                                </div>
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+                                </td>
+                                {% endfor %}
+
+                                <td class="view-stats text-center align-middle fw-bold">{{ player.stat_h|default('0') }}/{{ player.stat_ab|default('0') }}</td>
+                                <td class="view-stats text-center align-middle fw-bold">{{ player.stat_avg|default('.000') }}</td>
+                                <td class="view-stats text-center align-middle fw-bold">{{ player.stat_hr|default('0') }}</td>
+                                <td class="view-stats text-center align-middle fw-bold">{{ player.stat_rbi|default('0') }}</td>
+                                <td class="view-stats text-center align-middle fw-bold">{{ player.stat_ops|default('.000') }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                        
+                        <tr class="table-dark"><td colspan="9" class="ps-3 fw-bold small text-uppercase">Bench Options</td></tr>
+                        
+                        <tbody id="bench-list">
+                            {% for player in bench %}
+                            <tr style="cursor: grab;" class="player-row" 
+                                data-name="{{ player.name }}" 
+                                data-natural-pos="{{ player.pos }}"
+                                data-assigned-pos="{{ player.assigned_pos|default('BENCH') }}"
+                                data-def="{{ player.defense }}"
+                                data-tip-stats="H/AB: {{ player.stat_h|default('0') }}/{{ player.stat_ab|default('0') }} | AVG: {{ player.stat_avg|default('.000') }} | HR: {{ player.stat_hr|default('0') }} | RBI: {{ player.stat_rbi|default('0') }} | OPS: {{ player.stat_ops|default('.000') }}"
+                                data-tip-ratings="CON: {{ player.con }} | POW: {{ player.pow }} | SPD: {{ player.spd }} | DEF: {{ player.defense }}">
+                                
+                                <td class="text-center fw-bold text-muted batting-order">-</td>
+                                
+                                <td class="text-center">
+                                    <div class="fw-bold target-pos-text text-muted" style="font-size: 0.9rem;">BENCH</div>
+                                    <div class="text-muted" style="font-size: 0.65rem;">Actual: {{ player.pos }}</div>
+                                </td>
+                                
+                                <td class="fw-bold">{{ player.name }}</td>
+                                <td class="text-center fw-bold" style="color: {{ get_stamina_color(player.stam_cur, player.stam_tot) }};">
+                                    {{ player.stam_cur }}/{{ player.stam_tot }}
+                                </td>
+                                
+                                {% for stat_name, stat_val, stat_sub in [('con', player.con, player.con_sub), ('pow', player.pow, player.pow_sub), ('spd', player.spd, player.spd_sub), ('defense', player.defense, player.defense_sub)] %}
+                                <td class="view-ratings p-1 align-middle" data-stat="{{ stat_name }}">
+                                    <div class="d-flex h-100 border border-2 border-secondary rounded overflow-hidden shadow-sm" style="min-height: 48px;">
+                                        <div class="stat-main-val d-flex align-items-center justify-content-center fw-bold fs-6" style="width: 35%; background-color: {{ get_main_bg(stat_val) }}; color: {{ get_main_text(stat_val) }};">{{ stat_val }}</div>
+                                        <div class="d-flex w-100 border-start border-secondary">
+                                            {% for sub_label, sub_val in stat_sub %}
+                                                <div class="d-flex flex-column flex-grow-1 border-end border-opacity-25" style="background-color: {{ get_main_bg(sub_val) }}; color: {{ get_main_text(sub_val) }};">
+                                                    <div class="text-center w-100" style="font-size: 0.5rem; opacity: 0.8; border-bottom: 1px solid rgba(0,0,0,0.1);">{{ sub_label }}</div>
+                                                    <div class="d-flex align-items-center justify-content-center flex-grow-1 fw-bold sub-val-box sub-val-{{ stat_name }}" data-base-val="{{ sub_val }}">{{ sub_val }}</div>
+                                                </div>
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+                                </td>
+                                {% endfor %}
+
+                                <td class="view-stats text-center align-middle fw-bold">{{ player.stat_h|default('0') }}/{{ player.stat_ab|default('0') }}</td>
+                                <td class="view-stats text-center align-middle fw-bold">{{ player.stat_avg|default('.000') }}</td>
+                                <td class="view-stats text-center align-middle fw-bold">{{ player.stat_hr|default('0') }}</td>
+                                <td class="view-stats text-center align-middle fw-bold">{{ player.stat_rbi|default('0') }}</td>
+                                <td class="view-stats text-center align-middle fw-bold">{{ player.stat_ops|default('.000') }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- SECTION 2: PITCHERS -->
+        <div class="col-xl-5 col-lg-12">
+            <div class="card shadow-sm border-0 mb-4">
+                <div class="card-header card-header-dynamic fw-bold fs-5">
+                    ⚾ Pitching Staff (Drag to Role)
+                </div>
+                <div class="card-body p-0 table-responsive">
+                    <table class="table table-hover align-middle mb-0" style="border-collapse: separate; border-spacing: 0 4px;">
+                        <thead class="table-light small text-uppercase">
+                            <tr>
+                                <th class="ps-3 text-center" style="width: 10%;">Pos</th>
+                                <th style="width: 30%;">Player</th>
+                                <th class="text-center" style="width: 15%;">Stam</th>
+                                <th class="view-ratings text-center p-0" style="width: 15%;">VEL</th>
+                                <th class="view-ratings text-center p-0" style="width: 15%;">CTRL</th>
+                                <th class="view-ratings text-center p-0" style="width: 15%;">MOV</th>
+                                
+                                <th class="view-stats text-center p-0" style="width: 9%;">IP</th>
+                                <th class="view-stats text-center p-0" style="width: 9%;">ERA</th>
+                                <th class="view-stats text-center p-0" style="width: 9%;">K</th>
+                                <th class="view-stats text-center p-0" style="width: 9%;">BB</th>
+                                <th class="view-stats text-center p-0" style="width: 9%;">WHIP</th>
+                            </tr>
+                        </thead>
+                        
+                        <!-- PITCHING BUCKETS USING THE NEW DICTIONARY -->
+                        <tr class="table-dark"><td colspan="11" class="ps-3 fw-bold small text-uppercase">Starting Rotation (Max 5)</td></tr>
+                        <tbody id="sp-list" class="pitcher-bucket">
+                            {% for player in pitcher_buckets['SP'] %}
+                            <tr style="cursor: grab;" class="pitcher-row player-row" data-name="{{ player.name }}">
+                                <td class="text-center"><span class="badge bg-secondary pitcher-badge">{{ player.pos }}</span></td>
+                                <td class="fw-bold">{{ player.name }}</td>
+                                <td class="text-center fw-bold" style="color: {{ get_stamina_color(player.stam_cur, player.stam_tot) }};">
+                                    {{ player.stam_cur }}/{{ player.stam_tot }}
+                                </td>
+                                
+                                {% for stat_name, stat_val, stat_sub in [('vel', player.vel, player.vel_sub), ('ctrl', player.ctrl, player.ctrl_sub), ('mov', player.mov, player.mov_sub)] %}
+                                <td class="view-ratings p-1 align-middle">
+                                    <div class="d-flex h-100 border border-2 border-secondary rounded overflow-hidden shadow-sm" style="min-height: 48px;">
+                                        <div class="d-flex align-items-center justify-content-center fw-bold fs-6" style="width: 35%; background-color: {{ get_main_bg(stat_val) }}; color: {{ get_main_text(stat_val) }};">{{ stat_val }}</div>
+                                        <div class="d-flex w-100 border-start border-secondary">
+                                            {% for sub_label, sub_val in stat_sub %}
+                                                <div class="d-flex flex-column flex-grow-1 border-end border-opacity-25" style="background-color: {{ get_main_bg(sub_val) }}; color: {{ get_main_text(sub_val) }};">
+                                                    <div class="text-center w-100" style="font-size: 0.5rem; opacity: 0.8; border-bottom: 1px solid rgba(0,0,0,0.1);">{{ sub_label }}</div>
+                                                    <div class="d-flex align-items-center justify-content-center flex-grow-1 fw-bold sub-val-box">{{ sub_val }}</div>
+                                                </div>
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+                                </td>
+                                {% endfor %}
+
+                                <td class="view-stats text-center align-middle fw-bold">{{ player.stat_ip|default('0.0') }}</td>
+                                <td class="view-stats text-center align-middle fw-bold">{{ player.stat_era|default('0.00') }}</td>
+                                <td class="view-stats text-center align-middle fw-bold">{{ player.stat_k|default('0') }}</td>
+                                <td class="view-stats text-center align-middle fw-bold">{{ player.stat_bb|default('0') }}</td>
+                                <td class="view-stats text-center align-middle fw-bold">{{ player.stat_whip|default('0.00') }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                        
+                        <tr class="table-dark"><td colspan="11" class="ps-3 fw-bold small text-uppercase">Long Relief</td></tr>
+                        <tbody id="lr-list" class="pitcher-bucket">
+                            {% for player in pitcher_buckets['LR'] %}
+                            <tr style="cursor: grab;" class="pitcher-row player-row" data-name="{{ player.name }}">
+                                <td class="text-center"><span class="badge bg-secondary pitcher-badge">{{ player.pos }}</span></td>
+                                <td class="fw-bold">{{ player.name }}</td>
+                                <td class="text-center fw-bold" style="color: {{ get_stamina_color(player.stam_cur, player.stam_tot) }};">
+                                    {{ player.stam_cur }}/{{ player.stam_tot }}
+                                </td>
+                                
+                                {% for stat_name, stat_val, stat_sub in [('vel', player.vel, player.vel_sub), ('ctrl', player.ctrl, player.ctrl_sub), ('mov', player.mov, player.mov_sub)] %}
+                                <td class="view-ratings p-1 align-middle">
+                                    <div class="d-flex h-100 border border-2 border-secondary rounded overflow-hidden shadow-sm" style="min-height: 48px;">
+                                        <div class="d-flex align-items-center justify-content-center fw-bold fs-6" style="width: 35%; background-color: {{ get_main_bg(stat_val) }}; color: {{ get_main_text(stat_val) }};">{{ stat_val }}</div>
+                                        <div class="d-flex w-100 border-start border-secondary">
+                                            {% for sub_label, sub_val in stat_sub %}
+                                                <div class="d-flex flex-column flex-grow-1 border-end border-opacity-25" style="background-color: {{ get_main_bg(sub_val) }}; color: {{ get_main_text(sub_val) }};">
+                                                    <div class="text-center w-100" style="font-size: 0.5rem; opacity: 0.8; border-bottom: 1px solid rgba(0,0,0,0.1);">{{ sub_label }}</div>
+                                                    <div class="d-flex align-items-center justify-content-center flex-grow-1 fw-bold sub-val-box">{{ sub_val }}</div>
+                                                </div>
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+                                </td>
+                                {% endfor %}
+
+                                <td class="view-stats text-center align-middle fw-bold">{{ player.stat_ip|default('0.0') }}</td>
+                                <td class="view-stats text-center align-middle fw-bold">{{ player.stat_era|default('0.00') }}</td>
+                                <td class="view-stats text-center align-middle fw-bold">{{ player.stat_k|default('0') }}</td>
+                                <td class="view-stats text-center align-middle fw-bold">{{ player.stat_bb|default('0') }}</td>
+                                <td class="view-stats text-center align-middle fw-bold">{{ player.stat_whip|default('0.00') }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                        
+                        <tr class="table-dark"><td colspan="11" class="ps-3 fw-bold small text-uppercase">Middle Relief</td></tr>
+                        <tbody id="mr-list" class="pitcher-bucket">
+                            {% for player in pitcher_buckets['MR'] %}
+                            <tr style="cursor: grab;" class="pitcher-row player-row" data-name="{{ player.name }}">
+                                <td class="text-center"><span class="badge bg-secondary pitcher-badge">{{ player.pos }}</span></td>
+                                <td class="fw-bold">{{ player.name }}</td>
+                                <td class="text-center fw-bold" style="color: {{ get_stamina_color(player.stam_cur, player.stam_tot) }};">
+                                    {{ player.stam_cur }}/{{ player.stam_tot }}
+                                </td>
+                                
+                                {% for stat_name, stat_val, stat_sub in [('vel', player.vel, player.vel_sub), ('ctrl', player.ctrl, player.ctrl_sub), ('mov', player.mov, player.mov_sub)] %}
+                                <td class="view-ratings p-1 align-middle">
+                                    <div class="d-flex h-100 border border-2 border-secondary rounded overflow-hidden shadow-sm" style="min-height: 48px;">
+                                        <div class="d-flex align-items-center justify-content-center fw-bold fs-6" style="width: 35%; background-color: {{ get_main_bg(stat_val) }}; color: {{ get_main_text(stat_val) }};">{{ stat_val }}</div>
+                                        <div class="d-flex w-100 border-start border-secondary">
+                                            {% for sub_label, sub_val in stat_sub %}
+                                                <div class="d-flex flex-column flex-grow-1 border-end border-opacity-25" style="background-color: {{ get_main_bg(sub_val) }}; color: {{ get_main_text(sub_val) }};">
+                                                    <div class="text-center w-100" style="font-size: 0.5rem; opacity: 0.8; border-bottom: 1px solid rgba(0,0,0,0.1);">{{ sub_label }}</div>
+                                                    <div class="d-flex align-items-center justify-content-center flex-grow-1 fw-bold sub-val-box">{{ sub_val }}</div>
+                                                </div>
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+                                </td>
+                                {% endfor %}
+
+                                <td class="view-stats text-center align-middle fw-bold">{{ player.stat_ip|default('0.0') }}</td>
+                                <td class="view-stats text-center align-middle fw-bold">{{ player.stat_era|default('0.00') }}</td>
+                                <td class="view-stats text-center align-middle fw-bold">{{ player.stat_k|default('0') }}</td>
+                                <td class="view-stats text-center align-middle fw-bold">{{ player.stat_bb|default('0') }}</td>
+                                <td class="view-stats text-center align-middle fw-bold">{{ player.stat_whip|default('0.00') }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                        
+                        <tr class="table-dark"><td colspan="11" class="ps-3 fw-bold small text-uppercase">Set-Up (Max 1)</td></tr>
+                        <tbody id="su-list" class="pitcher-bucket">
+                            {% for player in pitcher_buckets['SU'] %}
+                            <tr style="cursor: grab;" class="pitcher-row player-row" data-name="{{ player.name }}">
+                                <td class="text-center"><span class="badge bg-secondary pitcher-badge">{{ player.pos }}</span></td>
+                                <td class="fw-bold">{{ player.name }}</td>
+                                <td class="text-center fw-bold" style="color: {{ get_stamina_color(player.stam_cur, player.stam_tot) }};">
+                                    {{ player.stam_cur }}/{{ player.stam_tot }}
+                                </td>
+                                
+                                {% for stat_name, stat_val, stat_sub in [('vel', player.vel, player.vel_sub), ('ctrl', player.ctrl, player.ctrl_sub), ('mov', player.mov, player.mov_sub)] %}
+                                <td class="view-ratings p-1 align-middle">
+                                    <div class="d-flex h-100 border border-2 border-secondary rounded overflow-hidden shadow-sm" style="min-height: 48px;">
+                                        <div class="d-flex align-items-center justify-content-center fw-bold fs-6" style="width: 35%; background-color: {{ get_main_bg(stat_val) }}; color: {{ get_main_text(stat_val) }};">{{ stat_val }}</div>
+                                        <div class="d-flex w-100 border-start border-secondary">
+                                            {% for sub_label, sub_val in stat_sub %}
+                                                <div class="d-flex flex-column flex-grow-1 border-end border-opacity-25" style="background-color: {{ get_main_bg(sub_val) }}; color: {{ get_main_text(sub_val) }};">
+                                                    <div class="text-center w-100" style="font-size: 0.5rem; opacity: 0.8; border-bottom: 1px solid rgba(0,0,0,0.1);">{{ sub_label }}</div>
+                                                    <div class="d-flex align-items-center justify-content-center flex-grow-1 fw-bold sub-val-box">{{ sub_val }}</div>
+                                                </div>
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+                                </td>
+                                {% endfor %}
+
+                                <td class="view-stats text-center align-middle fw-bold">{{ player.stat_ip|default('0.0') }}</td>
+                                <td class="view-stats text-center align-middle fw-bold">{{ player.stat_era|default('0.00') }}</td>
+                                <td class="view-stats text-center align-middle fw-bold">{{ player.stat_k|default('0') }}</td>
+                                <td class="view-stats text-center align-middle fw-bold">{{ player.stat_bb|default('0') }}</td>
+                                <td class="view-stats text-center align-middle fw-bold">{{ player.stat_whip|default('0.00') }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                        
+                        <tr class="table-dark"><td colspan="11" class="ps-3 fw-bold small text-uppercase">Closer (Max 1)</td></tr>
+                        <tbody id="cl-list" class="pitcher-bucket">
+                            {% for player in pitcher_buckets['CL'] %}
+                            <tr style="cursor: grab;" class="pitcher-row player-row" data-name="{{ player.name }}">
+                                <td class="text-center"><span class="badge bg-secondary pitcher-badge">{{ player.pos }}</span></td>
+                                <td class="fw-bold">{{ player.name }}</td>
+                                <td class="text-center fw-bold" style="color: {{ get_stamina_color(player.stam_cur, player.stam_tot) }};">
+                                    {{ player.stam_cur }}/{{ player.stam_tot }}
+                                </td>
+                                
+                                {% for stat_name, stat_val, stat_sub in [('vel', player.vel, player.vel_sub), ('ctrl', player.ctrl, player.ctrl_sub), ('mov', player.mov, player.mov_sub)] %}
+                                <td class="view-ratings p-1 align-middle">
+                                    <div class="d-flex h-100 border border-2 border-secondary rounded overflow-hidden shadow-sm" style="min-height: 48px;">
+                                        <div class="d-flex align-items-center justify-content-center fw-bold fs-6" style="width: 35%; background-color: {{ get_main_bg(stat_val) }}; color: {{ get_main_text(stat_val) }};">{{ stat_val }}</div>
+                                        <div class="d-flex w-100 border-start border-secondary">
+                                            {% for sub_label, sub_val in stat_sub %}
+                                                <div class="d-flex flex-column flex-grow-1 border-end border-opacity-25" style="background-color: {{ get_main_bg(sub_val) }}; color: {{ get_main_text(sub_val) }};">
+                                                    <div class="text-center w-100" style="font-size: 0.5rem; opacity: 0.8; border-bottom: 1px solid rgba(0,0,0,0.1);">{{ sub_label }}</div>
+                                                    <div class="d-flex align-items-center justify-content-center flex-grow-1 fw-bold sub-val-box">{{ sub_val }}</div>
+                                                </div>
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+                                </td>
+                                {% endfor %}
+
+                                <td class="view-stats text-center align-middle fw-bold">{{ player.stat_ip|default('0.0') }}</td>
+                                <td class="view-stats text-center align-middle fw-bold">{{ player.stat_era|default('0.00') }}</td>
+                                <td class="view-stats text-center align-middle fw-bold">{{ player.stat_k|default('0') }}</td>
+                                <td class="view-stats text-center align-middle fw-bold">{{ player.stat_bb|default('0') }}</td>
+                                <td class="view-stats text-center align-middle fw-bold">{{ player.stat_whip|default('0.00') }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                        
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+    <script>
+        const OOP_MATRIX = {{ oop_matrix | tojson | safe }};
+
+        document.addEventListener("DOMContentLoaded", function() {
+            
+            // --- 1. TOOLTIPS / TOGGLE ---
+            const viewToggle = document.getElementById('viewToggle');
+            const gridContainer = document.getElementById('master-grid-container');
+            const playerRows = document.querySelectorAll('.player-row');
+
+            function updateTooltips() {
+                const isStatsView = viewToggle.checked;
+                playerRows.forEach(row => {
+                    row.setAttribute('title', isStatsView ? row.getAttribute('data-tip-ratings') : row.getAttribute('data-tip-stats'));
+                });
+            }
+            viewToggle.addEventListener('change', () => {
+                gridContainer.classList.toggle('show-ratings', !viewToggle.checked);
+                gridContainer.classList.toggle('show-stats', viewToggle.checked);
+                updateTooltips();
+            });
+            updateTooltips();
+
+            // --- 2. WHITEBOARD AUTO-ASSIGNER ---
+            const dropdowns = document.querySelectorAll('.wb-dropdown');
+            
+            function formatName(fullName) {
+                if(!fullName) return "--";
+                let parts = fullName.split(' ');
+                if (parts.length > 1) return parts[0].charAt(0) + '. ' + parts[parts.length - 1];
+                return fullName;
+            }
+
+            function syncWhiteboard(autoAssignEmpty = false) {
+                const top9Rows = Array.from(document.getElementById('lineup-list').children);
+                const benchRows = Array.from(document.getElementById('bench-list').children);
+                
+                const top9 = top9Rows.map(row => ({
+                    name: row.getAttribute('data-name'),
+                    pos: row.getAttribute('data-natural-pos'),
+                    savedPos: row.getAttribute('data-assigned-pos'),
+                    def: parseInt(row.getAttribute('data-def')) || 0
+                }));
+
+                const top9Names = top9.map(p => p.name);
+
+                let ddSelections = new Map();
+                let assignedNames = new Set();
+
+                // Check existing selections vs saved state
+                dropdowns.forEach(dd => {
+                    if (dd.value && top9Names.includes(dd.value)) {
+                        ddSelections.set(dd, dd.value);
+                        assignedNames.add(dd.value);
+                    } else if (autoAssignEmpty) {
+                        // Check if a top 9 player was previously saved to this position
+                        const targetPos = dd.getAttribute('data-target-pos');
+                        const savedPlayer = top9.find(p => p.savedPos === targetPos && !assignedNames.has(p.name));
+                        if(savedPlayer) {
+                            ddSelections.set(dd, savedPlayer.name);
+                            assignedNames.add(savedPlayer.name);
+                        } else {
+                            ddSelections.set(dd, "");
+                        }
+                    } else {
+                        ddSelections.set(dd, "");
+                    }
+                });
+
+                if (autoAssignEmpty) {
+                    dropdowns.forEach(dd => {
+                        if (ddSelections.get(dd) === "") {
+                            const targetPos = dd.getAttribute('data-target-pos');
+                            let bestCandidate = null;
+                            
+                            top9.forEach(p => {
+                                if (!assignedNames.has(p.name) && p.pos === targetPos) {
+                                    if (!bestCandidate || p.def > bestCandidate.def) {
+                                        bestCandidate = p;
+                                    }
+                                }
+                            });
+
+                            if (bestCandidate) {
+                                ddSelections.set(dd, bestCandidate.name);
+                                assignedNames.add(bestCandidate.name);
+                            }
+                        }
+                    });
+                }
+
+                dropdowns.forEach(dd => {
+                    const targetVal = ddSelections.get(dd);
+                    dd.innerHTML = '<option value="">-EMPTY-</option>';
+                    
+                    top9.forEach(p => {
+                        if (!assignedNames.has(p.name) || p.name === targetVal) {
+                            const opt = document.createElement('option');
+                            opt.value = p.name;
+                            opt.textContent = `${formatName(p.name)}, ${p.pos} (${p.def})`;
+                            dd.appendChild(opt);
+                        }
+                    });
+                    
+                    dd.value = targetVal; 
+                });
+
+                evaluateWhiteboardColors();
+            }
+
+            function evaluateWhiteboardColors() {
+                const allHitterRows = [
+                    ...Array.from(document.getElementById('lineup-list').children),
+                    ...Array.from(document.getElementById('bench-list').children)
+                ];
+                
+                // 1. Reset all rows: Colors, Math, and Target Pos Labels
+                allHitterRows.forEach(row => {
+                    row.classList.remove('wb-oop-row');
+                    
+                    // Reset UI Label to BENCH initially
+                    let targetPosEl = row.querySelector('.target-pos-text');
+                    if (targetPosEl) {
+                        targetPosEl.innerText = "BENCH";
+                        targetPosEl.classList.add('text-muted');
+                        targetPosEl.classList.remove('text-primary');
+                    }
+
+                    // Reset sub-ratings math
+                    let defCell = row.querySelector('td[data-stat="defense"]');
+                    if (defCell) {
+                        let subVals = defCell.querySelectorAll('.sub-val-defense');
+                        let sum = 0;
+                        subVals.forEach(sv => {
+                            let baseVal = parseInt(sv.getAttribute('data-base-val'));
+                            sv.innerText = baseVal; // reset sub
+                            sum += baseVal;
+                        });
+                        let mainVal = defCell.querySelector('.stat-main-val');
+                        // Average the sub-values for the main overall reset
+                        if (mainVal && subVals.length > 0) mainVal.innerText = Math.round(sum / subVals.length);
+                    }
+                });
+
+                // 2. Evaluate dropdowns & Update UI Match
+                dropdowns.forEach(dd => {
+                    dd.classList.remove('wb-empty', 'wb-oop');
+                    if (dd.value === "") {
+                        dd.classList.add('wb-empty');
+                    } else {
+                        const playerRow = allHitterRows.find(r => r.getAttribute('data-name') === dd.value);
+                        if (!playerRow) return;
+
+                        const naturalPos = playerRow.getAttribute('data-natural-pos');
+                        const targetPos = dd.getAttribute('data-target-pos');
+                        
+                        // Update the Row UI Text Label to show where they are assigned
+                        let targetPosEl = playerRow.querySelector('.target-pos-text');
+                        if (targetPosEl) {
+                            targetPosEl.innerText = targetPos;
+                            targetPosEl.classList.remove('text-muted');
+                            targetPosEl.classList.add('text-primary');
+                        }
+
+                        // Apply OOP Logic & Math
+                        if (naturalPos !== targetPos && targetPos !== 'DH') {
+                            dd.classList.add('wb-oop');
+                            playerRow.classList.add('wb-oop-row'); // Orange row
+                            
+                            let multiplier = (OOP_MATRIX[naturalPos] && OOP_MATRIX[naturalPos][targetPos]) ? OOP_MATRIX[naturalPos][targetPos] : 0.5;
+                            
+                            // Re-calculate sub-ratings directly!
+                            let defCell = playerRow.querySelector('td[data-stat="defense"]');
+                            if (defCell) {
+                                let subVals = defCell.querySelectorAll('.sub-val-defense');
+                                let sum = 0;
+                                subVals.forEach(sv => {
+                                    let baseVal = parseInt(sv.getAttribute('data-base-val'));
+                                    let newVal = Math.floor(baseVal * multiplier);
+                                    sv.innerText = newVal; // Update sub on screen
+                                    sum += newVal;
+                                });
+                                // Update main defense to be average of new sub-ratings
+                                let mainVal = defCell.querySelector('.stat-main-val');
+                                if (mainVal && subVals.length > 0) {
+                                    mainVal.innerText = Math.round(sum / subVals.length);
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+
+            dropdowns.forEach(dd => {
+                dd.addEventListener('change', () => {
+                    syncWhiteboard(false); 
+                });
+            });
+
+            // --- 3. BATTING ORDER LOGIC ---
+            function updateBattingOrder() {
+                const rows = document.getElementById('lineup-list').children;
+                for (let i = 0; i < rows.length; i++) {
+                    const orderCell = rows[i].querySelector('.batting-order');
+                    if (orderCell) orderCell.innerText = (i + 1);
+                }
+                const benchRows = document.getElementById('bench-list').children;
+                for (let i = 0; i < benchRows.length; i++) {
+                    const orderCell = benchRows[i].querySelector('.batting-order');
+                    if (orderCell) orderCell.innerText = "-";
+                }
+                
+                syncWhiteboard(true); 
+            }
+
+            // --- 4. PITCHING STAFF LOGIC ---
+            function updatePitchingRoles() {
+                const buckets = {
+                    'sp-list': 'SP',
+                    'lr-list': 'LR',
+                    'mr-list': 'MR',
+                    'su-list': 'SU',
+                    'cl-list': 'CL'
+                };
+                
+                let currentSP1 = "--";
+
+                for (const [listId, prefix] of Object.entries(buckets)) {
+                    const list = document.getElementById(listId);
+                    if (!list) continue;
+
+                    const rows = list.children;
+                    for (let i = 0; i < rows.length; i++) {
+                        const badge = rows[i].querySelector('td:first-child .pitcher-badge');
+                        if (badge) {
+                            badge.innerText = `${prefix}${i + 1}`;
+                            
+                            // SP1 Highlight Logic
+                            if (listId === 'sp-list' && i === 0) {
+                                badge.classList.remove('bg-secondary', 'text-white');
+                                badge.classList.add('bg-warning', 'text-dark'); 
+                                rows[i].classList.add('wb-sp1-row'); // Entire row neon yellow
+                                currentSP1 = formatName(rows[i].getAttribute('data-name'));
+                            } else {
+                                badge.classList.remove('bg-warning', 'text-dark');
+                                badge.classList.add('bg-secondary', 'text-white');
+                                rows[i].classList.remove('wb-sp1-row');
+                            }
+                        }
+                    }
+                }
+
+                const wbPitcher = document.getElementById('wb-pitcher-name');
+                if (wbPitcher) {
+                    wbPitcher.innerText = currentSP1;
+                }
+            }
+
+            // --- 5. SORTABLE JS INITIALIZATION ---
+            
+            const lineupList = document.getElementById('lineup-list');
+            const benchList = document.getElementById('bench-list');
+
+            if (lineupList && benchList) {
+                new Sortable(lineupList, {
+                    group: 'hitters',
+                    animation: 150,
+                    onEnd: function () {
+                        updateBattingOrder();
+                    }
+                });
+
+                new Sortable(benchList, {
+                    group: 'hitters',
+                    animation: 150,
+                    onEnd: function () {
+                        updateBattingOrder();
+                    }
+                });
+            }
+
+            document.querySelectorAll('.pitcher-bucket').forEach(bucket => {
+                new Sortable(bucket, {
+                    group: 'pitchers',
+                    animation: 150,
+                    onEnd: function (evt) {
+                        updatePitchingRoles();
+                    }
+                });
+            });
+
+            // --- 6. RUN ON PAGE LOAD ---
+            updateBattingOrder();
+            updatePitchingRoles();
+
+        });
+
+        // --- 7. SAVE ROUTE LOGIC ---
+        window.saveRoster = function() {
+            const payload = {
+                hitters: [],
+                pitchers: []
+            };
+
+            // Harvest Hitters
+            const lineupRows = document.getElementById('lineup-list').children;
+            const dropdowns = document.querySelectorAll('.wb-dropdown');
+            
+            for (let i = 0; i < lineupRows.length; i++) {
+                const name = lineupRows[i].getAttribute('data-name');
+                
+                let assignedPos = "BENCH";
+                dropdowns.forEach(dd => {
+                    if (dd.value === name) assignedPos = dd.getAttribute('data-target-pos');
+                });
+
+                payload.hitters.push({
+                    name: name,
+                    batting_order: i + 1,
+                    assigned_pos: assignedPos
+                });
+            }
+
+            // Harvest Pitchers
+            const buckets = ['sp-list', 'lr-list', 'mr-list', 'su-list', 'cl-list'];
+            buckets.forEach(listId => {
+                const list = document.getElementById(listId);
+                if (list) {
+                    const rows = list.children;
+                    for (let i = 0; i < rows.length; i++) {
+                        const name = rows[i].getAttribute('data-name');
+                        const roleBadge = rows[i].querySelector('td:first-child .pitcher-badge').innerText;
+                        payload.pitchers.push({
+                            name: name,
+                            role: roleBadge 
+                        });
+                    }
+                }
+            });
+
+            // Send to Flask
+            fetch('/save_roster', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if(data.status === 'success') {
+                    alert("Roster saved successfully!");
+                } else {
+                    alert("Error saving roster.");
+                }
+            })
+            .catch(err => console.error("Save error:", err));
+        }
+    </script>
+{% endblock %}

@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+
+{% block content %}
+    <h2 class="mb-4 text-dark fw-bold">Manager Dashboard</h2>
+    
+    <!-- The Grid Row -->
+    <div class="row g-4"> <!-- g-4 adds perfect spacing between the modules -->
+        
+        <!-- MODULE 1: Major League Team Preview -->
+        <div class="col-md-6">
+            <!-- h-100 ensures modules stretch to the same height -->
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-header card-header-dynamic fw-bold">
+                    ⚾ Major League Team
+                </div>
+                <div class="card-body">
+                    <h5 class="card-title">Current Record: 54-32</h5>
+                    <p class="card-text text-muted">1st Place, NL East</p>
+                    <hr>
+                    <p class="mb-1"><strong>Top Hitter:</strong> S. Suzuki (.312 AVG)</p>
+                    <p><strong>Top Pitcher:</strong> J. Steele (2.45 ERA)</p>
+                    
+                    <!-- This button takes them to the single-module view -->
+                    <a href="{{ url_for('major_league') }}" class="btn btn-outline-primary btn-sm mt-2">Manage Full Roster &raquo;</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODULE 2: Minor League System Preview -->
+        <div class="col-md-6">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-header card-header-dynamic fw-bold">
+                    🧢 Minor League System
+                </div>
+                <div class="card-body">
+                    <h5 class="card-title">Farm System Rank: #4</h5>
+                    <p class="card-text text-muted">3 Top-100 Prospects</p>
+                    <hr>
+                    <p class="mb-1"><strong>AAA Affiliate:</strong> Iowa Cubs</p>
+                    <p><strong>Recent Promotion:</strong> Pete Crow-Armstrong</p>
+                    
+                    <a href="#" class="btn btn-outline-success btn-sm mt-2">View Farm System &raquo;</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODULE 3: Recent Transactions (Spans full width below the top two) -->
+        <div class="col-md-12">
+            <div class="card shadow-sm border-0">
+                <div class="card-header card-header-dynamic fw-bold">
+                    🤝 Recent Front Office Moves
+                </div>
+                <div class="card-body">
+                    <ul class="list-group list-group-flush">
+                        <li class="list-group-item">Traded <strong>SP Kyle Hendricks</strong> for a 2027 3rd Round Pick.</li>
+                        <li class="list-group-item">Signed <strong>RP Aroldis Chapman</strong> to a 1-year, $4M contract.</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+    </div>
+{% endblock %}
