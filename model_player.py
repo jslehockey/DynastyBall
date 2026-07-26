@@ -98,24 +98,34 @@ class Player:
                            stats["bat_speed"], stats["elevation"], stats["eye"]]) / 6
             return int((hit_avg * 0.8) + (self.attributes["defense"]["def.glove"] * 0.1) + (self.attributes["baserunning"]["sprint_speed"] * 0.1))
 
-    def get_salary_demands(self, league_tier=1):
-        """Calculates expected AAV and contract length based on ability, age, and traits."""
+    def get_salary_demands(self, league_tier=1, current_game=0, total_games=80, is_offseason=True):
+        """Calculates expected AAV and length. Adapts to time of year."""
         ovr = self.get_ovr()
         
-        # 1. Base AAV Curve 
+        # 1. Base AAV Curve (from your pseudo-code)
         base_aav = 750000 + (max(0, (ovr - 55)) ** 2.5) * 3500 
-        
-        # Scale down economy for lower tiers
         tier_multiplier = max(0.2, 1.0 - (0.4 * (league_tier - 1)))
         base_aav *= tier_multiplier
         
-        # 2. Base Length based on Age
+        # 2. Timing Leverage (NEW)
+        if is_offseason:
+            # The "Bidding War" Premium: Top players demand slightly more in the winter
+            if ovr > 80:
+                base_aav *= 1.15 
+        else:
+            # The "Desperation" Decay: Value drops as the season progresses
+            # At game 1, they want ~85% of their value. By game 80, they'll take ~40%.
+            games_remaining_pct = (total_games - current_game) / total_games
+            desperation_multiplier = 0.40 + (0.45 * games_remaining_pct)
+            base_aav *= desperation_multiplier
+
+        # 3. Base Length based on Age
         if self.age < 26: base_length = 5
         elif self.age < 30: base_length = 4
         elif self.age < 33: base_length = 3
         elif self.age < 36: base_length = 2
         else: base_length = 1
-
+        
         # 3. Apply Trait Modifiers
         expected_aav = base_aav
         expected_length = base_length

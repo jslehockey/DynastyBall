@@ -1,0 +1,397 @@
+{% extends "base.html" %}
+
+{% block content %}
+<style>
+    .roster-row { cursor: pointer; transition: background-color 0.2s; }
+    .roster-row:hover { background-color: rgba(0,0,0,0.05); }
+    .selected-mlb { background-color: rgba(220, 53, 69, 0.15) !important; border-left: 4px solid #dc3545; }
+    .selected-aaa { background-color: rgba(13, 110, 253, 0.15) !important; border-left: 4px solid #0d6efd; }
+    
+    .war-room-card { min-height: 180px; border: 2px dashed #ccc; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 15px; transition: all 0.2s; }
+    .war-room-filled { border: 2px solid #333; background-color: #fff; justify-content: flex-start; align-items: flex-start; box-shadow: 2px 2px 8px rgba(0,0,0,0.1); }
+</style>
+
+<nav aria-label="breadcrumb">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="{{ url_for('main.home') }}">Home</a></li>
+        <li class="breadcrumb-item active" aria-current="page">Call-Ups</li>
+    </ol>
+</nav>
+
+<!-- Front Office Transactions & Roster Counters -->
+    <div class="row mb-4 mt-3">
+        <div class="col-12 d-flex justify-content-between align-items-center">
+            <h2 class="mb-0 fw-bold">Front Office: Player Moves</h2>
+            <div class="d-flex gap-3">
+                <!-- MLB Badge -->
+                <div class="fs-6 fw-bold px-3 py-2 rounded shadow-sm" 
+                     style="background-color: {% if limits.mlb_full %}#ffebee{% else %}#e8f5e9{% endif %}; 
+                            color: {% if limits.mlb_full %}#d32f2f{% else %}#2e7d32{% endif %}; 
+                            border: 1px solid {% if limits.mlb_full %}#ef9a9a{% else %}#a5d6a7{% endif %};">
+                    MLB Roster: {{ limits.mlb_count }} / 26
+                </div>
+                <!-- AAA Badge -->
+                <div class="fs-6 fw-bold px-3 py-2 rounded shadow-sm" 
+                     style="background-color: {% if limits.aaa_full %}#ffebee{% else %}#e8f5e9{% endif %}; 
+                            color: {% if limits.aaa_full %}#d32f2f{% else %}#2e7d32{% endif %}; 
+                            border: 1px solid {% if limits.aaa_full %}#ef9a9a{% else %}#a5d6a7{% endif %};">
+                    AAA Roster: {{ limits.aaa_count }} / 30
+                </div>
+            </div>
+        </div>
+    </div>
+
+<!-- TOP PANE: THE WAR ROOM COMPARISON -->
+<div class="row mb-3">
+    <div class="col-12">
+        <div class="card shadow-sm border-0">
+            <div class="card-header card-header-dynamic fw-bold fs-5 text-center">
+                ⚖️ Call-Ups & Demotions
+            </div>
+            <div class="card-body bg-light">
+                <div class="row align-items-center">
+                    
+                    <!-- Left Side: Selected MLB Player -->
+                    <div class="col-md-5">
+                        <div class="war-room-card rounded text-muted" id="mlb-preview">
+                            <h5 class="fw-bold mb-0">Select MLB Player</h5>
+                            <small>(or Empty Slot)</small>
+                        </div>
+                    </div>
+
+                    <!-- Middle: The Action Button -->
+                    <div class="col-md-2 text-center">
+                        <!-- Update the action URL -->
+                        <form action="{{ url_for('main.swap_players') }}" method="POST" id="swap-form">
+                            <input type="hidden" name="mlb_player_id" id="input-mlb-id">
+                            <input type="hidden" name="aaa_player_id" id="input-aaa-id">
+        
+                            <!-- Change type="button" to type="submit" -->
+                            <button type="submit" class="btn btn-warning btn-lg fw-bold w-100 shadow-sm" id="btn-execute-swap" disabled>
+                                🔄 SWAP
+                            </button>
+                        </form>
+                    </div>
+
+                    <!-- Right Side: Selected AAA Player -->
+                    <div class="col-md-5">
+                        <div class="war-room-card rounded text-muted" id="aaa-preview">
+                            <h5 class="fw-bold mb-0">Select AAA Player</h5>
+                            <small>(to promote)</small>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- STATS DROPDOWN SELECTOR -->
+<div class="row mb-4">
+    <div class="col-12 d-flex justify-content-center align-items-center">
+        <span class="me-3 fw-bold fs-5 text-dark">Viewing Stats:</span>
+        <select id="stat-competition-select" class="form-select form-select-lg w-auto shadow-sm fw-bold text-primary" style="cursor: pointer; border: 2px solid #0d6efd;">
+            <option value="mlb" selected>MLB Regular Season</option>
+            <option value="aaa">AAA Regular Season</option>
+            <option value="cup">Dynasty Cup</option>
+            <option value="playoffs">Playoffs</option>
+        </select>
+    </div>
+</div>
+
+<!-- BOTTOM PANE: DUAL ROSTERS -->
+<div class="row g-4">
+    
+    <!-- MLB Roster -->
+    <div class="col-md-6">
+        <div class="card shadow-sm border-0">
+            <!-- Calculate true MLB count by ignoring the 'EMPTY' placeholder rows -->
+            {% set true_mlb_count = mlb_roster | rejectattr('id', 'equalto', 'EMPTY') | list | length %}
+            <div class="card-header bg-danger text-white fw-bold d-flex justify-content-between">
+                <span>MLB Active Roster</span>
+                <span>({{ true_mlb_count }} / 26)</span>
+            </div>
+            
+            <div class="card-body p-0 table-responsive" style="max-height: 600px; overflow-y: auto;">
+                <table class="table table-hover align-middle mb-0 text-center" style="font-size: 0.85rem;">
+                    <thead class="table-light sticky-top">
+                        <tr>
+                            <th>Pos</th>
+                            <th class="text-start">Name</th>
+                            <th>OVR</th>
+                            <th>Stam</th>
+                        </tr>
+                    </thead>
+                    <tbody id="mlb-table-body">
+                        {% for p in mlb_roster %}
+                        <!-- We embed ALL ratings and stats into data attributes so JS can read them instantly -->
+                        <tr class="roster-row mlb-row" 
+                            data-id="{{ p.id }}" data-name="{{ p.name }}" data-pos="{{ p.pos }}" data-age="{{ p.age }}"
+                            data-role="{{ p.role }}" data-ovr="{{ p.ovr }}"
+                            data-con="{{ p.con }}" data-pow="{{ p.pow }}" data-spd="{{ p.spd }}" data-def="{{ p.defense }}"
+                            data-vel="{{ p.vel }}" data-ctrl="{{ p.ctrl }}" data-mov="{{ p.mov }}"
+                            
+                            data-mlb-g="{{ p.mlb_g|default('0') }}" data-mlb-avg="{{ p.mlb_avg|default('.000') }}" data-mlb-hr="{{ p.mlb_hr|default('0') }}" data-mlb-rbi="{{ p.mlb_rbi|default('0') }}" data-mlb-ops="{{ p.mlb_ops|default('.000') }}"
+                            data-mlb-ip="{{ p.mlb_ip|default('0.0') }}" data-mlb-era="{{ p.mlb_era|default('0.00') }}" data-mlb-k="{{ p.mlb_k|default('0') }}" data-mlb-whip="{{ p.mlb_whip|default('0.00') }}"
+                            
+                            data-aaa-g="{{ p.aaa_g|default('0') }}" data-aaa-avg="{{ p.aaa_avg|default('.000') }}" data-aaa-hr="{{ p.aaa_hr|default('0') }}" data-aaa-rbi="{{ p.aaa_rbi|default('0') }}" data-aaa-ops="{{ p.aaa_ops|default('.000') }}"
+                            data-aaa-ip="{{ p.aaa_ip|default('0.0') }}" data-aaa-era="{{ p.aaa_era|default('0.00') }}" data-aaa-k="{{ p.aaa_k|default('0') }}" data-aaa-whip="{{ p.aaa_whip|default('0.00') }}"
+                            
+                            data-cup-g="{{ p.cup_g|default('0') }}" data-cup-avg="{{ p.cup_avg|default('.000') }}" data-cup-hr="{{ p.cup_hr|default('0') }}" data-cup-rbi="{{ p.cup_rbi|default('0') }}" data-cup-ops="{{ p.cup_ops|default('.000') }}"
+                            data-cup-ip="{{ p.cup_ip|default('0.0') }}" data-cup-era="{{ p.cup_era|default('0.00') }}" data-cup-k="{{ p.cup_k|default('0') }}" data-cup-whip="{{ p.cup_whip|default('0.00') }}"
+                            
+                            data-playoffs-g="{{ p.playoffs_g|default('0') }}" data-playoffs-avg="{{ p.playoffs_avg|default('.000') }}" data-playoffs-hr="{{ p.playoffs_hr|default('0') }}" data-playoffs-rbi="{{ p.playoffs_rbi|default('0') }}" data-playoffs-ops="{{ p.playoffs_ops|default('.000') }}"
+                            data-playoffs-ip="{{ p.playoffs_ip|default('0.0') }}" data-playoffs-era="{{ p.playoffs_era|default('0.00') }}" data-playoffs-k="{{ p.playoffs_k|default('0') }}" data-playoffs-whip="{{ p.playoffs_whip|default('0.00') }}">
+                            
+                            <td>
+                                {% if p.id == 'EMPTY' %}
+                                    <span class="badge bg-dark">--</span>
+                                {% else %}
+                                    <span class="badge bg-secondary">{{ p.pos }}</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-start fw-bold text-dark">
+                                {% if p.id == 'EMPTY' %}
+                                    {{ p.name }}
+                                {% else %}
+                                    <!-- The link to the player profile -->
+                                    <a href="{{ url_for('main.player_profile', player_id=p.id) }}" 
+                                    class="text-primary text-decoration-none" 
+                                    target="_blank" 
+                                    onclick="event.stopPropagation();">
+                                        {{ p.name }}
+                                    </a> 
+                                    {% if p.age != '--' %}<span class="text-muted fw-normal" style="font-size: 0.8em;">({{ p.age }})</span>{% endif %}
+                                {% endif %}
+                            </td>
+                            <td class="fw-bold fs-6" style="color: {{ get_main_text(p.ovr) if p.ovr > 0 else '#000' }}; background-color: {{ get_main_bg(p.ovr) if p.ovr > 0 else 'transparent' }};">
+                                {{ p.ovr if p.ovr > 0 else '--' }}
+                            </td>
+                            <td class="fw-bold" style="color: {{ get_stamina_color(p.stam_cur, p.stam_tot) if p.id != 'EMPTY' else '#000' }};">
+                                {{ p.stam_cur }}/{{ p.stam_tot }}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- AAA Roster -->
+    <div class="col-md-6">
+        <div class="card shadow-sm border-0">
+            <div class="card-header bg-primary text-white fw-bold d-flex justify-content-between">
+                <span>AAA Active Roster</span>
+                <span>({{ aaa_roster | length }} / 30)</span>
+            </div>
+            <div class="card-body p-0 table-responsive" style="max-height: 600px; overflow-y: auto;">
+                <table class="table table-hover align-middle mb-0 text-center" style="font-size: 0.85rem;">
+                    <thead class="table-light sticky-top">
+                        <tr>
+                            <th>Pos</th>
+                            <th class="text-start">Name</th>
+                            <th>OVR</th>
+                            <th>Stam</th>
+                        </tr>
+                    </thead>
+                    <tbody id="aaa-table-body">
+                        {% for p in aaa_roster %}
+                        <tr class="roster-row aaa-row" 
+                            data-id="{{ p.id }}" data-name="{{ p.name }}" data-pos="{{ p.pos }}" data-age="{{ p.age }}"
+                            data-role="{{ p.role }}" data-ovr="{{ p.ovr }}"
+                            data-con="{{ p.con }}" data-pow="{{ p.pow }}" data-spd="{{ p.spd }}" data-def="{{ p.defense }}"
+                            data-vel="{{ p.vel }}" data-ctrl="{{ p.ctrl }}" data-mov="{{ p.mov }}"
+                            
+                            data-mlb-g="{{ p.mlb_g|default('0') }}" data-mlb-avg="{{ p.mlb_avg|default('.000') }}" data-mlb-hr="{{ p.mlb_hr|default('0') }}" data-mlb-rbi="{{ p.mlb_rbi|default('0') }}" data-mlb-ops="{{ p.mlb_ops|default('.000') }}"
+                            data-mlb-ip="{{ p.mlb_ip|default('0.0') }}" data-mlb-era="{{ p.mlb_era|default('0.00') }}" data-mlb-k="{{ p.mlb_k|default('0') }}" data-mlb-whip="{{ p.mlb_whip|default('0.00') }}"
+                            
+                            data-aaa-g="{{ p.aaa_g|default('0') }}" data-aaa-avg="{{ p.aaa_avg|default('.000') }}" data-aaa-hr="{{ p.aaa_hr|default('0') }}" data-aaa-rbi="{{ p.aaa_rbi|default('0') }}" data-aaa-ops="{{ p.aaa_ops|default('.000') }}"
+                            data-aaa-ip="{{ p.aaa_ip|default('0.0') }}" data-aaa-era="{{ p.aaa_era|default('0.00') }}" data-aaa-k="{{ p.aaa_k|default('0') }}" data-aaa-whip="{{ p.aaa_whip|default('0.00') }}"
+                            
+                            data-cup-g="{{ p.cup_g|default('0') }}" data-cup-avg="{{ p.cup_avg|default('.000') }}" data-cup-hr="{{ p.cup_hr|default('0') }}" data-cup-rbi="{{ p.cup_rbi|default('0') }}" data-cup-ops="{{ p.cup_ops|default('.000') }}"
+                            data-cup-ip="{{ p.cup_ip|default('0.0') }}" data-cup-era="{{ p.cup_era|default('0.00') }}" data-cup-k="{{ p.cup_k|default('0') }}" data-cup-whip="{{ p.cup_whip|default('0.00') }}"
+                            
+                            data-playoffs-g="{{ p.playoffs_g|default('0') }}" data-playoffs-avg="{{ p.playoffs_avg|default('.000') }}" data-playoffs-hr="{{ p.playoffs_hr|default('0') }}" data-playoffs-rbi="{{ p.playoffs_rbi|default('0') }}" data-playoffs-ops="{{ p.playoffs_ops|default('.000') }}"
+                            data-playoffs-ip="{{ p.playoffs_ip|default('0.0') }}" data-playoffs-era="{{ p.playoffs_era|default('0.00') }}" data-playoffs-k="{{ p.playoffs_k|default('0') }}" data-playoffs-whip="{{ p.playoffs_whip|default('0.00') }}">
+                            
+                            <td><span class="badge bg-secondary">{{ p.pos }}</span></td>
+                            <td class="text-start fw-bold text-dark">
+                                <a href="{{ url_for('main.player_profile', player_id=p.id) }}" 
+                                    class="text-primary text-decoration-none" 
+                                    target="_blank" 
+                                    onclick="event.stopPropagation();">
+                                        {{ p.name }}
+                                </a> 
+                                <span class="text-muted fw-normal" style="font-size: 0.8em;">({{ p.age }})</span>
+                            </td>
+                            <td class="fw-bold fs-6" style="color: {{ get_main_text(p.ovr) }}; background-color: {{ get_main_bg(p.ovr) }};">{{ p.ovr }}</td>
+                            <td class="fw-bold" style="color: {{ get_stamina_color(p.stam_cur, p.stam_tot) }};">{{ p.stam_cur }}/{{ p.stam_tot }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    document.addEventListener("DOMContentLoaded", function() {
+        let selectedMLB = null;
+        let selectedAAA = null;
+
+        const mlbRows = document.querySelectorAll('.mlb-row');
+        const aaaRows = document.querySelectorAll('.aaa-row');
+        const btnSwap = document.getElementById('btn-execute-swap');
+        const compSelect = document.getElementById('stat-competition-select');
+
+        // Re-render the cards instantly when the dropdown is changed
+        compSelect.addEventListener('change', () => {
+            if (selectedMLB) renderCard('mlb-preview', selectedMLB, selectedMLB.rowElement);
+            if (selectedAAA) renderCard('aaa-preview', selectedAAA, selectedAAA.rowElement);
+        });
+
+        function extractBaseData(row) {
+            return {
+                rowElement: row, 
+                id: row.getAttribute('data-id'), name: row.getAttribute('data-name'),
+                age: row.getAttribute('data-age'), pos: row.getAttribute('data-pos'),
+                role: row.getAttribute('data-role'), ovr: row.getAttribute('data-ovr'),
+                con: row.getAttribute('data-con'), pow: row.getAttribute('data-pow'),
+                spd: row.getAttribute('data-spd'), def: row.getAttribute('data-def'),
+                vel: row.getAttribute('data-vel'), ctrl: row.getAttribute('data-ctrl'), mov: row.getAttribute('data-mov')
+            };
+        }
+
+        function getCompetitionStats(row, prefix, isPitcher) {
+            const g = row.getAttribute(`data-${prefix}-g`);
+            
+            if (!g || g === '0' || g === '--') {
+                if (isPitcher) return { g: '-', ip: '-', era: '0.00', k: '-', whip: '0.00' };
+                else return { g: '-', avg: '.000', hr: '-', rbi: '-', ops: '.000' };
+            }
+
+            if (isPitcher) {
+                return {
+                    g: g,
+                    ip: row.getAttribute(`data-${prefix}-ip`) || '-',
+                    era: row.getAttribute(`data-${prefix}-era`) || '0.00',
+                    k: row.getAttribute(`data-${prefix}-k`) || '-',
+                    whip: row.getAttribute(`data-${prefix}-whip`) || '0.00'
+                };
+            } else {
+                return {
+                    g: g,
+                    avg: row.getAttribute(`data-${prefix}-avg`) || '.000',
+                    hr: row.getAttribute(`data-${prefix}-hr`) || '-',
+                    rbi: row.getAttribute(`data-${prefix}-rbi`) || '-',
+                    ops: row.getAttribute(`data-${prefix}-ops`) || '.000'
+                };
+            }
+        }
+
+        function renderCard(containerId, data, rowElement) {
+            const container = document.getElementById(containerId);
+            
+            if (data.id === 'EMPTY') {
+                container.innerHTML = `<h4 class="fw-bold text-muted mb-0">[ EMPTY ROSTER SLOT ]</h4>`;
+                container.classList.remove('war-room-filled');
+                return;
+            }
+
+            container.classList.add('war-room-filled');
+            
+            const isPitcher = (data.role === 'Pitcher' || ['SP', 'RP', 'CL', 'SU', 'MR', 'LR'].includes(data.pos));
+            const activePrefix = compSelect.value; 
+            const activeLabel = compSelect.options[compSelect.selectedIndex].text;
+            const stats = getCompetitionStats(rowElement, activePrefix, isPitcher);
+            
+            let ratingsHTML = "";
+            let statsHTML = "";
+
+            if (isPitcher) {
+                ratingsHTML = `
+                    <div class="d-flex w-100 justify-content-between text-center mt-3 pb-2 border-bottom">
+                        <div><small class="text-muted d-block" style="font-size: 0.7rem;">VEL</small><b class="fs-5">${data.vel}</b></div>
+                        <div><small class="text-muted d-block" style="font-size: 0.7rem;">CTRL</small><b class="fs-5">${data.ctrl}</b></div>
+                        <div><small class="text-muted d-block" style="font-size: 0.7rem;">MOV</small><b class="fs-5">${data.mov}</b></div>
+                    </div>`;
+                statsHTML = `
+                    <div class="d-flex w-100 justify-content-between text-center mt-2">
+                        <div><small class="text-muted d-block" style="font-size: 0.7rem;">G</small><b>${stats.g}</b></div>
+                        <div><small class="text-muted d-block" style="font-size: 0.7rem;">IP</small><b>${stats.ip}</b></div>
+                        <div><small class="text-muted d-block" style="font-size: 0.7rem;">ERA</small><b>${stats.era}</b></div>
+                        <div><small class="text-muted d-block" style="font-size: 0.7rem;">K</small><b>${stats.k}</b></div>
+                        <div><small class="text-muted d-block" style="font-size: 0.7rem;">WHIP</small><b>${stats.whip}</b></div>
+                    </div>`;
+            } else {
+                ratingsHTML = `
+                    <div class="d-flex w-100 justify-content-between text-center mt-3 pb-2 border-bottom">
+                        <div><small class="text-muted d-block" style="font-size: 0.7rem;">CON</small><b class="fs-5">${data.con}</b></div>
+                        <div><small class="text-muted d-block" style="font-size: 0.7rem;">POW</small><b class="fs-5">${data.pow}</b></div>
+                        <div><small class="text-muted d-block" style="font-size: 0.7rem;">SPD</small><b class="fs-5">${data.spd}</b></div>
+                        <div><small class="text-muted d-block" style="font-size: 0.7rem;">DEF</small><b class="fs-5">${data.def}</b></div>
+                    </div>`;
+                statsHTML = `
+                    <div class="d-flex w-100 justify-content-between text-center mt-2">
+                        <div><small class="text-muted d-block" style="font-size: 0.7rem;">G</small><b>${stats.g}</b></div>
+                        <div><small class="text-muted d-block" style="font-size: 0.7rem;">AVG</small><b>${stats.avg}</b></div>
+                        <div><small class="text-muted d-block" style="font-size: 0.7rem;">HR</small><b>${stats.hr}</b></div>
+                        <div><small class="text-muted d-block" style="font-size: 0.7rem;">RBI</small><b>${stats.rbi}</b></div>
+                        <div><small class="text-muted d-block" style="font-size: 0.7rem;">OPS</small><b>${stats.ops}</b></div>
+                    </div>`;
+            }
+
+            container.innerHTML = `
+                <div class="w-100">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <h4 class="fw-bold mb-0 text-dark" style="letter-spacing: -0.5px;">${data.name}</h4>
+                            <small class="text-muted">Age: ${data.age}</small>
+                        </div>
+                        <div class="text-end">
+                            <span class="badge bg-secondary mb-1">${data.pos}</span><br>
+                            <span class="badge bg-dark">OVR ${data.ovr}</span>
+                        </div>
+                    </div>
+                    ${ratingsHTML}
+                    <div class="mt-2 text-center w-100"><small class="text-uppercase fw-bold text-primary" style="font-size: 0.65rem; letter-spacing: 1px;">${activeLabel}</small></div>
+                    ${statsHTML}
+                </div>
+            `;
+        }
+
+        function checkSwapReady() {
+            if (selectedMLB && selectedAAA) {
+                btnSwap.removeAttribute('disabled');
+                document.getElementById('input-mlb-id').value = selectedMLB.id;
+                document.getElementById('input-aaa-id').value = selectedAAA.id;
+            } else {
+                btnSwap.setAttribute('disabled', 'true');
+            }
+        }
+
+        mlbRows.forEach(row => {
+            row.addEventListener('click', function() {
+                mlbRows.forEach(r => r.classList.remove('selected-mlb'));
+                this.classList.add('selected-mlb');
+                selectedMLB = extractBaseData(this);
+                renderCard('mlb-preview', selectedMLB, this);
+                checkSwapReady();
+            });
+        });
+
+        aaaRows.forEach(row => {
+            row.addEventListener('click', function() {
+                aaaRows.forEach(r => r.classList.remove('selected-aaa'));
+                this.classList.add('selected-aaa');
+                selectedAAA = extractBaseData(this);
+                renderCard('aaa-preview', selectedAAA, this);
+                checkSwapReady();
+            });
+        });
+    });
+</script>
+{% endblock %}

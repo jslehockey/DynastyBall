@@ -1,0 +1,259 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4 mb-5">
+    
+    <!-- 1. HEADER MODULE -->
+    <div class="card shadow-sm border-0 mb-4 bg-dark text-white">
+        <div class="card-body d-flex justify-content-between align-items-center p-4">
+            <div>
+                <h2 class="mb-0 fw-bold">{{ player.name }} <span class="text-white-50 fs-5">({{ player.age }})</span></h2>
+                <div class="fs-5 mt-1 text-light">{{ team_full_name }}</div>
+            </div>
+            <div class="text-end">
+                <div class="fs-4 fw-bold mb-1">B/T: {{ player.bats }}/{{ player.throws }}</div>
+                <span class="badge bg-primary fs-6 px-3 py-2">{{ player.pos }}</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- 2 & 3. CONTRACT AND AWARDS ROW -->
+    <div class="row g-4 mb-4">
+        <!-- CONTRACT MODULE -->
+        <div class="col-lg-4 col-md-5">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-header bg-light fw-bold text-uppercase">📝 Contract</div>
+                <div class="card-body text-center d-flex flex-column justify-content-center">
+                    {% if player.contract_amount > 0 %}
+                        <h3 class="fw-bold text-success mb-2">${{ "{:,.0f}".format(player.contract_amount) }} <span class="fs-6 text-muted fw-normal">/ yr</span></h3>
+                        <div class="fs-5 text-secondary fw-bold">{{ player.contract_years }} Year{% if player.contract_years != 1 %}s{% endif %} Remaining</div>
+                    {% else %}
+                        <h3 class="fw-bold text-muted mb-2">Free Agent</h3>
+                        <div class="fs-5 text-secondary fw-bold">No Active Contract</div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        
+        <!-- AWARDS & RECORD BOOK MODULE -->
+        <div class="col-lg-8 col-md-7">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-header bg-light fw-bold text-uppercase">🏆 Awards & Record Book</div>
+                <div class="card-body" style="max-height: 150px; overflow-y: auto;">
+                    <ul class="list-unstyled mb-0">
+                        {% if player.awards %}
+                            {% for award in player.awards %}
+                                <li class="mb-2 border-bottom pb-1">
+                                    <span class="me-2">🏅</span> 
+                                    <strong>{{ award.year }} {{ award.competition }}:</strong> {{ award.title }}
+                                </li>
+                            {% endfor %}
+                        {% else %}
+                            <li class="text-muted fst-italic text-center mt-4">No major awards or records yet.</li>
+                        {% endif %}
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 4. RATINGS MODULE -->
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-header bg-light fw-bold text-uppercase">📊 Scouting Ratings</div>
+        <div class="card-body p-0">
+            <!-- Tabs Nav -->
+            <ul class="nav nav-tabs px-3 pt-3" id="ratingsTab" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active fw-bold" id="overall-tab" data-bs-toggle="tab" data-bs-target="#overall" type="button" role="tab">Overall</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link fw-bold" id="breakdown-tab" data-bs-toggle="tab" data-bs-target="#breakdown" type="button" role="tab">Ratings Breakdown</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link fw-bold" id="history-tab" data-bs-toggle="tab" data-bs-target="#history" type="button" role="tab">Historical Ratings</button>
+                </li>
+            </ul>
+            
+            <!-- Tabs Content -->
+            <div class="tab-content p-4" id="ratingsTabContent">
+                <!-- Overall Tab -->
+                <div class="tab-pane fade show active text-center py-3" id="overall" role="tabpanel">
+                    <h5 class="text-muted text-uppercase mb-3">Current Overall Rating</h5>
+                    <div class="display-1 fw-bold">{{ player.overall }}</div>
+                </div>
+                
+                <!-- Ratings Breakdown Tab -->
+                <div class="tab-pane fade py-3" id="breakdown" role="tabpanel">
+                    <div class="row text-center">
+                        {% if player.is_pitcher %}
+                            <div class="col-4">
+                                <div class="text-muted fw-bold text-uppercase mb-1">Velocity</div>
+                                <div class="display-4 fw-bold text-dark">{{ player.vel }}</div>
+                            </div>
+                            <div class="col-4 border-start border-end">
+                                <div class="text-muted fw-bold text-uppercase mb-1">Control</div>
+                                <div class="display-4 fw-bold text-dark">{{ player.ctrl }}</div>
+                            </div>
+                            <div class="col-4">
+                                <div class="text-muted fw-bold text-uppercase mb-1">Movement</div>
+                                <div class="display-4 fw-bold text-dark">{{ player.mov }}</div>
+                            </div>
+                        {% else %}
+                            <div class="col-3">
+                                <div class="text-muted fw-bold text-uppercase mb-1">Contact</div>
+                                <div class="display-4 fw-bold text-dark">{{ player.con }}</div>
+                            </div>
+                            <div class="col-3 border-start">
+                                <div class="text-muted fw-bold text-uppercase mb-1">Power</div>
+                                <div class="display-4 fw-bold text-dark">{{ player.pow }}</div>
+                            </div>
+                            <div class="col-3 border-start">
+                                <div class="text-muted fw-bold text-uppercase mb-1">Speed</div>
+                                <div class="display-4 fw-bold text-dark">{{ player.spd }}</div>
+                            </div>
+                            <div class="col-3 border-start">
+                                <div class="text-muted fw-bold text-uppercase mb-1">Defense</div>
+                                <div class="display-4 fw-bold text-dark">{{ player.defense }}</div>
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+                
+                <!-- Historical Ratings Tab -->
+                <div class="tab-pane fade" id="history" role="tabpanel">
+                    <table class="table table-sm table-hover text-center align-middle mb-0">
+                        <thead class="table-light text-muted small text-uppercase">
+                            <tr>
+                                <th>Season</th>
+                                {% if player.is_pitcher %}
+                                    <th>VEL</th><th>CTRL</th><th>MOV</th>
+                                {% else %}
+                                    <th>CON</th><th>POW</th><th>SPD</th><th>DEF</th>
+                                {% endif %}
+                                <th class="table-dark text-white">OVR</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Newest at bottom, Oldest at top -->
+                            {% for hist in player.ratings_history %}
+                            <tr>
+                                <td class="fw-bold">Year {{ hist.season }}</td>
+                                {% if player.is_pitcher %}
+                                    <td>{{ hist.vel }}</td><td>{{ hist.ctrl }}</td><td>{{ hist.mov }}</td>
+                                {% else %}
+                                    <td>{{ hist.con }}</td><td>{{ hist.pow }}</td><td>{{ hist.spd }}</td><td>{{ hist.defense }}</td>
+                                {% endif %}
+                                <td class="fw-bold bg-light">{{ hist.overall }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 5. STATS MODULE -->
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-header bg-light fw-bold text-uppercase">📈 Statistics</div>
+        <div class="card-body p-0">
+            <!-- Stats Tabs Nav -->
+            <ul class="nav nav-tabs px-3 pt-3" id="statsTab" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active fw-bold" id="current-stats-tab" data-bs-toggle="tab" data-bs-target="#current-stats" type="button" role="tab">Current Season</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link fw-bold" id="career-stats-tab" data-bs-toggle="tab" data-bs-target="#career-stats" type="button" role="tab">Career Stats</button>
+                </li>
+            </ul>
+
+            <!-- Stats Tabs Content -->
+            <div class="tab-content p-0" id="statsTabContent">
+                
+                <!-- Current Season Stats -->
+                <div class="tab-pane fade show active p-4" id="current-stats" role="tabpanel">
+                    <table class="table table-bordered text-center align-middle mb-0">
+                        <thead class="table-light text-muted small text-uppercase">
+                            <tr>
+                                <th class="text-start">Competition</th>
+                                {% if player.is_pitcher %}
+                                    <th>W-L</th><th>ERA</th><th>IP</th><th>K</th><th>BB</th><th>WHIP</th>
+                                {% else %}
+                                    <th>G</th><th>AB</th><th>H</th><th>HR</th><th>RBI</th><th>AVG</th><th>OPS</th>
+                                {% endif %}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for stat in player.stats_current %}
+                            <tr>
+                                <td class="text-start fw-bold">{{ stat.competition }}</td>
+                                {% if player.is_pitcher %}
+                                    <td>{{ stat.w }}-{{ stat.l }}</td><td>{{ stat.era }}</td><td>{{ stat.ip }}</td><td>{{ stat.k }}</td><td>{{ stat.bb }}</td><td>{{ stat.whip }}</td>
+                                {% else %}
+                                    <td>{{ stat.g }}</td><td>{{ stat.ab }}</td><td>{{ stat.h }}</td><td>{{ stat.hr }}</td><td>{{ stat.rbi }}</td><td>{{ stat.avg }}</td><td>{{ stat.ops }}</td>
+                                {% endif %}
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Career Stats (Back of Card) -->
+                <div class="tab-pane fade" id="career-stats" role="tabpanel">
+                    <div class="table-responsive p-0 m-0">
+                        <table class="table table-hover text-center align-middle mb-0">
+                            <thead class="table-dark small text-uppercase">
+                                <tr>
+                                    <th>Year</th>
+                                    <th class="text-start">Competition</th>
+                                    {% if player.is_pitcher %}
+                                        <th>W-L</th><th>ERA</th><th>IP</th><th>K</th><th>BB</th><th>WHIP</th>
+                                    {% else %}
+                                        <th>G</th><th>AB</th><th>H</th><th>HR</th><th>RBI</th><th>AVG</th><th>OPS</th>
+                                    {% endif %}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for stat in player.stats_career %}
+                                <tr>
+                                    <td class="text-muted fw-bold">{{ stat.year }}</td>
+                                    <td class="text-start fw-bold">{{ stat.competition }}</td>
+                                    {% if player.is_pitcher %}
+                                        <td>{{ stat.w }}-{{ stat.l }}</td><td>{{ stat.era }}</td><td>{{ stat.ip }}</td><td>{{ stat.k }}</td><td>{{ stat.bb }}</td><td>{{ stat.whip }}</td>
+                                    {% else %}
+                                        <td>{{ stat.g }}</td><td>{{ stat.ab }}</td><td>{{ stat.h }}</td><td>{{ stat.hr }}</td><td>{{ stat.rbi }}</td><td>{{ stat.avg }}</td><td>{{ stat.ops }}</td>
+                                    {% endif %}
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                            <tfoot class="border-top border-3">
+                                <!-- Totals by Competition -->
+                                {% for comp_total in player.career_totals_by_comp %}
+                                <tr class="bg-light text-muted fw-bold">
+                                    <td colspan="2" class="text-end pe-3">{{ comp_total.competition }} TOTAL:</td>
+                                    {% if player.is_pitcher %}
+                                        <td>{{ comp_total.w }}-{{ comp_total.l }}</td><td>{{ comp_total.era }}</td><td>{{ comp_total.ip }}</td><td>{{ comp_total.k }}</td><td>{{ comp_total.bb }}</td><td>{{ comp_total.whip }}</td>
+                                    {% else %}
+                                        <td>{{ comp_total.g }}</td><td>{{ comp_total.ab }}</td><td>{{ comp_total.h }}</td><td>{{ comp_total.hr }}</td><td>{{ comp_total.rbi }}</td><td>{{ comp_total.avg }}</td><td>{{ comp_total.ops }}</td>
+                                    {% endif %}
+                                </tr>
+                                {% endfor %}
+                                <!-- Grand Total -->
+                                <tr class="table-secondary text-dark fw-bold fs-6">
+                                    <td colspan="2" class="text-end pe-3">PRO CAREER (MLB+Cup+Playoffs):</td>
+                                    {% if player.is_pitcher %}
+                                        <td>{{ player.career_grand_total.w }}-{{ player.career_grand_total.l }}</td><td>{{ player.career_grand_total.era }}</td><td>{{ player.career_grand_total.ip }}</td><td>{{ player.career_grand_total.k }}</td><td>{{ player.career_grand_total.bb }}</td><td>{{ player.career_grand_total.whip }}</td>
+                                    {% else %}
+                                        <td>{{ player.career_grand_total.g }}</td><td>{{ player.career_grand_total.ab }}</td><td>{{ player.career_grand_total.h }}</td><td>{{ player.career_grand_total.hr }}</td><td>{{ player.career_grand_total.rbi }}</td><td>{{ player.career_grand_total.avg }}</td><td>{{ player.career_grand_total.ops }}</td>
+                                    {% endif %}
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}

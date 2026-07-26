@@ -1,0 +1,430 @@
+{% extends "base.html" %}
+
+{% block content %}
+<style>
+    /* Front Office Specific Styles */
+    .fo-header {
+        border-bottom: 3px solid var(--team-color-1);
+        padding-bottom: 0.5rem;
+    }
+    
+    .roster-limit-badge {
+        font-size: 1.1rem;
+        font-weight: 700;
+        padding: 0.4rem 1rem;
+        border-radius: 6px;
+        background-color: rgba(0,0,0,0.04);
+        border: 1px solid rgba(0,0,0,0.1);
+    }
+    
+    /* Critical: Chart.js requires a relative parent with a fixed height to scale correctly */
+    .chart-container-top {
+        position: relative;
+        height: 220px; 
+        width: 100%;
+    }
+    
+    .ledger-val {
+        font-family: monospace;
+        font-size: 1.15rem;
+    }
+        /* Whiteboard Dashboard Styles */
+        .whiteboard-container {
+            background-color: #fdfdfd;
+            border: 3px solid #222;
+            border-radius: 8px;
+            position: relative;
+            height: 350px; /* Scaled slightly to fit alongside the butterfly graph */
+            width: 100%;
+            max-width: 500px;
+            margin: 0 auto;
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.05);
+        }
+        .wb-diamond {
+            position: absolute;
+            bottom: 45px;
+            left: 50%;
+            transform: translateX(-50%) rotate(45deg);
+            width: 130px;
+            height: 130px;
+            border: 2px solid rgba(0,0,0,0.15);
+        }
+        .wb-pos {
+            position: absolute;
+            transform: translateX(-50%);
+            text-align: center;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 6px;
+            border-radius: 6px;
+            border: 1px solid #ccc;
+            box-shadow: 0 3px 6px rgba(0,0,0,0.1);
+            min-width: 60px; /* Reduced width for integer counts */
+            z-index: 2; 
+        }
+        .wb-label {
+            font-size: 0.7rem;
+            font-weight: 800;
+            margin-bottom: 2px;
+            color: #555;
+            text-transform: uppercase;
+        }
+        .wb-count {
+            font-size: 1.25rem;
+            font-weight: bold;
+            color: #000;
+            line-height: 1;
+        }
+        
+        /* Positioning */
+        .wb-c  { bottom: 4%; left: 50%; }
+        .wb-p  { bottom: 30%; left: 50%; }
+        .wb-1b { bottom: 42%; left: 78%; }
+        .wb-2b { bottom: 58%; left: 65%; }
+        .wb-ss { bottom: 58%; left: 35%; }
+        .wb-3b { bottom: 42%; left: 22%; }
+        .wb-lf { top: 8%; left: 18%; }
+        .wb-cf { top: 4%; left: 50%; }
+        .wb-rf { top: 8%; left: 82%; }
+</style>
+
+<div class="container-fluid mt-2">
+    <!-- HEADER -->
+    <div class="d-flex justify-content-between align-items-end fo-header mb-4">
+        <h2 class="mb-0 fw-bold text-uppercase">Front Office Dashboard</h2>
+        
+        <div class="d-flex gap-3">
+            <!-- Note: Replaced 'text-red' with Bootstrap's 'text-danger' -->
+            <div class="roster-limit-badge shadow-sm {{ 'text-dark' if majors_count <= 26 else 'text-danger bg-danger-subtle border-danger' }}">
+                <span class="fs-6 text-muted me-1 fw-normal">Active</span> {{ majors_count }}/26
+            </div>
+            <div class="roster-limit-badge shadow-sm {{ 'text-dark' if aaa_count <= 30 else 'text-danger bg-danger-subtle border-danger' }}">
+                <span class="fs-6 text-muted me-1 fw-normal">AAA</span> {{ aaa_count }}/30
+            </div>
+        </div>
+    </div>
+
+    <!-- TOP ROW: Ledger & Expiring Contracts -->
+    <div class="row g-4 mb-4">
+        
+        <!-- Module 1: Budget Ledger -->
+        <div class="col-12 col-xl-4">
+            <div class="card shadow-sm h-100 border-0">
+                <div class="card-header card-header-dynamic fw-bold text-uppercase">
+                    Budget Ledger
+                </div>
+                <div class="card-body d-flex flex-column justify-content-center">
+                    <div class="d-flex justify-content-between mb-2 pb-2 border-bottom">
+                        <span class="text-muted fw-bold">Starting Budget:</span>
+                        <span class="ledger-val text-success">${{ "{:,.0f}".format(finances.balance) }}</span>
+                    </div>
+                    <div class="d-flex justify-content-between mb-3 pb-2 border-bottom">
+                        <span class="text-muted fw-bold">Player Payroll:</span>
+                        <span class="ledger-val text-danger">-${{ "{:,.0f}".format(finances.cost_players) }}</span>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center mt-auto bg-light p-3 rounded border">
+                        <h5 class="mb-0 fw-bold text-uppercase">Available</h5>
+                        <h4 class="mb-0 fw-bold ledger-val">${{ "{:,.0f}".format(available_budget) }}</h4>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Module 2: Historical Finance Line Chart -->
+        <div class="col-12 col-md-6 col-xl-4">
+            <div class="card shadow-sm h-100 border-0">
+                <div class="card-header card-header-dynamic fw-bold text-uppercase">
+                    Capital Over Time
+                </div>
+                <div class="card-body">
+                    <div class="chart-container-top">
+                        <canvas id="historicalFinanceLineChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Module 3: Expiring Contracts Bar Graph -->
+        <div class="col-12 col-md-6 col-xl-4">
+            <div class="card shadow-sm h-100 border-0">
+                <div class="card-header card-header-dynamic fw-bold text-uppercase">
+                    Expiring Contracts
+                </div>
+                <div class="card-body">
+                    <div class="chart-container-top">
+                        <canvas id="expiringContractsBarGraph"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+    </div>
+
+    <!-- MIDDLE ROW: Team Composition -->
+    <div class="row g-4 mb-4">
+        
+        <!-- Module 4: Whiteboard Position Counts -->
+        <div class="col-12 col-md-5 col-xl-4">
+            <div class="card shadow-sm h-100 border-0">
+                <div class="card-header card-header-dynamic fw-bold text-uppercase">
+                    Roster Whiteboard
+                </div>
+                <div class="card-body bg-light d-flex align-items-center">
+                    
+                    <div class="whiteboard-container">
+                        <div class="wb-diamond"></div>
+                        
+                        <!-- Auto-generated Hitters -->
+                        {% for pos in ['C', '1B', '2B', '3B', 'SS', 'LF', 'CF', 'RF'] %}
+                        <div class="wb-pos wb-{{ pos|lower }}">
+                            <div class="wb-label">{{ pos }}</div>
+                            <div class="wb-count">{{ pos_counts[pos] }}</div>
+                        </div>
+                        {% endfor %}
+                        
+                        <!-- Pitcher -->
+                        <div class="wb-pos wb-p">
+                            <div class="wb-label">P</div>
+                            <div class="wb-count">{{ pos_counts['P'] }}</div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+        <!-- Module 5: Hitter vs Pitcher Spending (Butterfly Graph) -->
+        <div class="col-12 col-md-7 col-xl-8">
+            <div class="card shadow-sm h-100 border-0">
+                <div class="card-header card-header-dynamic fw-bold text-uppercase">
+                    Payroll Allocation: Hitters vs. Pitchers
+                </div>
+                <div class="card-body d-flex flex-column">
+                    <div class="chart-container-top flex-grow-1" style="height: 220px;">
+                        <canvas id="payrollButterflyChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+    <!-- BOTTOM ROW: Scatter Plot & Donut Chart -->
+    <div class="row g-4 mb-4">
+        
+        <!-- Module 6: Age vs. Salary Scatter Plot -->
+        <div class="col-12 col-lg-8">
+            <div class="card shadow-sm h-100 border-0">
+                <div class="card-header card-header-dynamic fw-bold text-uppercase">
+                    Roster Distribution: Age vs. Salary
+                </div>
+                <div class="card-body">
+                    <div class="chart-container" style="position: relative; height: 350px; width: 100%;">
+                        <canvas id="ageSalaryScatterChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Module 7: Payroll Breakdown Donut Chart -->
+        <div class="col-12 col-lg-4">
+            <div class="card shadow-sm h-100 border-0">
+                <div class="card-header card-header-dynamic fw-bold text-uppercase">
+                    Payroll by Unit
+                </div>
+                <div class="card-body d-flex flex-column justify-content-center align-items-center">
+                    <div class="chart-container" style="position: relative; height: 300px; width: 100%;">
+                        <canvas id="payrollDonutChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+    <!-- ROSTER CARDS PLACEHOLDER -->
+
+</div>
+
+<!-- CHART.JS SCRIPT AND CONFIGURATION -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    document.addEventListener("DOMContentLoaded", function() {
+        // --- 1. Parse Data from Python ---
+        const financeSeasons = {{ finance_history.seasons | tojson }};
+        const financeBalances = {{ finance_history.balances | tojson }};
+        
+        const contractLabels = {{ contract_labels | tojson }};
+        const contractValues = {{ contract_values | tojson }};
+        
+        const hitSpend = -{{ spending_split.hitters }}; 
+        const pitSpend = {{ spending_split.pitchers }};
+        
+        const scatterDataRaw = {{ scatter_data | tojson }};
+        const donutDataRaw = {{ donut_data | tojson }};
+
+        // --- 2. RENDER: Capital Over Time (Line Chart) ---
+        const ctxCapital = document.getElementById('historicalFinanceLineChart').getContext('2d');
+        new Chart(ctxCapital, {
+            type: 'line',
+            data: {
+                labels: financeSeasons,
+                datasets: [{
+                    label: 'Available Capital',
+                    data: financeBalances,
+                    borderColor: '{{ team_color_1 }}',
+                    backgroundColor: '{{ team_color_2 }}80', 
+                    borderWidth: 3,
+                    tension: 0.3, 
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false, 
+                plugins: { legend: { display: false } },
+                scales: {
+                    y: { 
+                        beginAtZero: true,
+                        ticks: {
+                            callback: function(value) { return '$' + (value / 1000000) + 'M'; }
+                        }
+                    }
+                }
+            }
+        });
+
+        // --- 3. RENDER: Expiring Contracts (Bar Chart) ---
+        const ctxContracts = document.getElementById('expiringContractsBarGraph').getContext('2d');
+        new Chart(ctxContracts, {
+            type: 'bar',
+            data: {
+                labels: contractLabels,
+                datasets: [{
+                    label: 'Payroll Expiring',
+                    data: contractValues,
+                    backgroundColor: '{{ team_color_1 }}',
+                    borderRadius: 4 
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false, 
+                plugins: { legend: { display: false } },
+                scales: {
+                    y: { 
+                        beginAtZero: true,
+                        ticks: {
+                            callback: function(value) { return '$' + (value / 1000000) + 'M'; }
+                        }
+                    }
+                }
+            }
+        });
+
+        // --- 4. RENDER: Payroll Butterfly Chart ---
+        const ctxButterfly = document.getElementById('payrollButterflyChart').getContext('2d');
+        new Chart(ctxButterfly, {
+            type: 'bar',
+            data: {
+                labels: ['Payroll Split'],
+                datasets: [
+                    { label: 'Hitters', data: [hitSpend], backgroundColor: '{{ team_color_1 }}', borderRadius: 4 },
+                    { label: 'Pitchers', data: [pitSpend], backgroundColor: '{{ team_color_2 }}', borderColor: '{{ team_color_1 }}', borderWidth: 2, borderRadius: 4 }
+                ]
+            },
+            options: {
+                indexAxis: 'y', 
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: 'top' },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                let val = Math.abs(context.raw);
+                                return context.dataset.label + ': $' + (val / 1000000).toFixed(2) + 'M';
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        stacked: true,
+                        ticks: { callback: function(value) { return '$' + (Math.abs(value) / 1000000) + 'M'; } }
+                    },
+                    y: { stacked: true, display: false }
+                }
+            }
+        });
+
+        // --- 5. RENDER: Scatter Plot Config ---
+        const ctxScatter = document.getElementById('ageSalaryScatterChart').getContext('2d');
+        new Chart(ctxScatter, {
+            type: 'scatter',
+            data: {
+                datasets: [{
+                    label: 'Player Contract',
+                    data: scatterDataRaw,
+                    backgroundColor: '{{ team_color_1 }}80', 
+                    borderColor: '{{ team_color_1 }}',
+                    pointRadius: 6,
+                    pointHoverRadius: 8
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: { title: { display: true, text: 'Age', font: { weight: 'bold' } }, min: 18, max: 45 },
+                    y: {
+                        title: { display: true, text: 'Salary ($)', font: { weight: 'bold' } },
+                        ticks: { callback: function(value) { return '$' + (value / 1000000).toFixed(1) + 'M'; } }
+                    }
+                },
+                plugins: {
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                const point = context.raw;
+                                const formattedSalary = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(point.y);
+                                return `${point.name} (Age: ${point.x}) - ${formattedSalary}`;
+                            }
+                        }
+                    },
+                    legend: { display: false }
+                }
+            }
+        });
+
+        // --- 6. RENDER: Donut Chart Config ---
+        const ctxDonut = document.getElementById('payrollDonutChart').getContext('2d');
+        new Chart(ctxDonut, {
+            type: 'doughnut',
+            data: {
+                labels: ['Catchers', 'Infielders', 'Outfielders', 'Pitchers'],
+                datasets: [{
+                    data: [donutDataRaw['Catchers'], donutDataRaw['Infielders'], donutDataRaw['Outfielders'], donutDataRaw['Pitchers']],
+                    backgroundColor: ['#424242', '#bdbdbd', '#757575', '{{ team_color_1 }}'],
+                    borderWidth: 2,
+                    borderColor: '#ffffff'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                cutout: '65%',
+                plugins: {
+                    legend: { position: 'bottom', labels: { usePointStyle: true, padding: 20 } },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                const value = context.raw;
+                                const formattedSalary = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(value);
+                                return ` ${context.label}: ${formattedSalary}`;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    });
+</script>
+{% endblock %}

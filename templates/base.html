@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -8,18 +7,18 @@
     <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     
-    <!-- DiamondBucs Custom Themes & Layout -->
+    <!-- Dynasty Ball Custom Themes & Layout -->
     <style>
         /* 1. DYNAMIC TEAM COLORS */
         /* Jinja checks for passed variables; if missing, falls back to Plum and White */
         :root {
-            --team-color-1: {{ team_color_1 | default('#3d1e43') }};
+            --team-color-1: {{ team_color_1 | default('#000000') }};
             --team-color-2: {{ team_color_2 | default('#ffffff') }};
         }
 
         body { 
             padding-top: 56px; 
-            background-color: #FAF9F6; 
+            background-color: #fcf1f8; 
         }
         
         /* 2. THE DYNAMIC NAVBAR OVERRIDES */
@@ -45,15 +44,21 @@
             .col-custom-main { flex: 0 0 85%; max-width: 85%; width: 85%; }
         }
         .sidebar-lavender {
-            background-color: #E6E6FA; min-height: calc(100vh - 56px); border-right: 1px solid #d4d0e6; display: flex; flex-direction: column;
+            background-color: #e6ddec; min-height: calc(100vh - 56px); border-right: 1px solid #d4d0e6; display: flex; flex-direction: column;
         }
-        .sidebar-lavender .nav-link { color: #111111 !important; transition: all 0.2s ease-in-out; }
-        .sidebar-lavender .nav-link:hover { background-color: rgba(61, 30, 67, 0.08); border-radius: 4px; }
-        .sidebar-lavender .nav-link.active-link { color: #3d1e43 !important; font-weight: 700; background-color: rgba(61, 30, 67, 0.12); border-radius: 4px; }
+        .sidebar-lavender .nav-link { color: #000000 !important; transition: all 0.2s ease-in-out; }
+        .sidebar-lavender .nav-link:hover { background-color: rgba(52, 22, 58, 0.08); border-radius: 4px; }
+        .sidebar-lavender .nav-link.active-link { 
+            color: #1d0622 !important; 
+            font-weight: 700; 
+            background-color: transparent; 
+            border: 1px solid #1d0622; 
+            border-radius: 4px; 
+        }
         .team-title { text-shadow: 1px 1px 2px rgba(0,0,0,0.4); }
 
         .ad-space {
-            border: 2px dashed #b0aec2; background-color: rgba(0,0,0,0.03); color: #888; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 0.8rem; font-weight: bold; text-transform: uppercase; letter-spacing: 1px;
+            border: 2px dashed #9c7e68; background-color: rgba(0,0,0,0.03); color: #888; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 0.8rem; font-weight: bold; text-transform: uppercase; letter-spacing: 1px;
         }
         .ad-horizontal { width: 100%; min-height: 90px; }
         .ad-vertical { width: 100%; min-height: 600px; }
@@ -62,57 +67,27 @@
         .card-header-dynamic {
             background-color: var(--team-color-1) !important;
             color: var(--team-color-2) !important;
-            border-bottom: 2px solid rgba(0,0,0,0.1); /* Adds a subtle shadow line */
+            border-bottom: 2px solid rgba(0,0,0,0.1); 
         }
     </style>
 </head>
 <body>
 
     <!-- 1. The Dynamic Top Banner -->
-    <!-- Notice we swapped 'navbar-dark' and 'bg-plum' for 'navbar-dynamic' -->
     <nav class="navbar navbar-expand-lg navbar-dynamic fixed-top shadow-sm z-3">
         <div class="container-fluid position-relative">
-            <a class="navbar-brand fw-bold" href="{{ url_for('home') }}">⚾ Dynasty Baseball</a>
+            <a class="navbar-brand fw-bold" href="{{ url_for('main.home') }}">⚾ Dynasty Baseball</a>
             <span class="team-title navbar-text fw-bold fs-4 position-absolute start-50 translate-middle-x d-none d-md-block">
                 {{ team_nickname|default("DiamondBucs") }}
             </span>
             <div class="collapse navbar-collapse justify-content-end" id="navbarRight">
                 <ul class="navbar-nav">
-                    <li class="nav-item"><a class="nav-link" href="#">Front Office</a></li>
+                    <!-- LINK UPDATED HERE -->
+                    <li class="nav-item"><a class="nav-link" href="{{ url_for('main.front_office', team_id=team_id|default('1')) }}">Front Office</a></li>
                     <li class="nav-item"><a class="nav-link" href="#">Free Agency</a></li>
                     <li class="nav-item"><a class="nav-link" href="#">News</a></li>
                     <li class="nav-item dropdown">
-                        <!-- Dropdowns need special handling to inherit the dynamic color -->
                         <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                            Account Settings
-                        </a>
-                        <ul class="dropdown-menu dropdown-menu-end shadow border-0 mt-2">
-                            <li><a class="dropdown-item" href="#">Team Settings</a></li>
-                            <li><a class="dropdown-item" href="#">Manager Settings</a></li>
-                            <li><hr class="dropdown-divider"></li>
-                            <li><a class="dropdown-item text-danger" href="#">Logout</a></li>
-                        </ul>
-                    </li>
-                </ul>
-            </div>
-        </div>
-    </nav>
-<body>
-
-    <!-- 1. The Top Banner (Custom Deep Plum) -->
-    <nav class="navbar navbar-expand-lg navbar-dark bg-plum fixed-top shadow-sm z-3">
-        <div class="container-fluid position-relative">
-            <a class="navbar-brand fw-bold" href="{{ url_for('home') }}">⚾ Dynasty Baseball</a>
-            <span class="team-title navbar-text fw-bold text-white fs-4 position-absolute start-50 translate-middle-x d-none d-md-block">
-                {{ team_nickname|default("DiamondBucs") }}
-            </span>
-            <div class="collapse navbar-collapse justify-content-end" id="navbarRight">
-                <ul class="navbar-nav">
-                    <li class="nav-item"><a class="nav-link text-white-50" href="#">Front Office</a></li>
-                    <li class="nav-item"><a class="nav-link text-white-50" href="#">Free Agency</a></li>
-                    <li class="nav-item"><a class="nav-link text-white-50" href="#">News</a></li>
-                    <li class="nav-item dropdown">
-                        <a class="nav-link dropdown-toggle text-white-50" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                             Account Settings
                         </a>
                         <ul class="dropdown-menu dropdown-menu-end shadow border-0 mt-2">
@@ -139,22 +114,60 @@
                         <span>Team Management</span>
                     </h6>
                     
-                    <li class="nav-item mb-1"><a class="nav-link active-link" href="{{ url_for('major_league') }}"><span class="me-2">⚾</span> Major League Team</a></li>
-                    <li class="nav-item mb-1"><a class="nav-link" href="#"><span class="me-2">🧢</span> Minor League Team</a></li>
-                    <li class="nav-item mb-1"><a class="nav-link" href="#"><span class="me-2">🤝</span> Free Agency</a></li>
-                    <li class="nav-item mb-1"><a class="nav-link" href="#"><span class="me-2">📋</span> Draft</a></li>
+                    <!-- LINK UPDATED HERE -->
+                    <li class="nav-item mb-1">
+                        <a class="nav-link {% if request.endpoint == 'main.front_office' or request.endpoint == 'front_office' %}active-link{% endif %}" href="{{ url_for('main.front_office', team_id=team_id|default('1')) }}">
+                            <span class="me-2">🏢</span> Front Office
+                        </a>
+                    </li>
+                    <li class="nav-item mb-1">
+                        <a class="nav-link {% if request.endpoint == 'major_league' %}active-link{% endif %}" href="{{ url_for('main.major_league') }}">
+                            <span class="me-2">⚾</span> Major League Team
+                        </a>
+                    </li>
+                    <li class="nav-item mb-1">
+                        <a class="nav-link {% if request.endpoint == 'minor_league' %}active-link{% endif %}" href="{{ url_for('main.minor_league') }}">
+                            <span class="me-2">🧢</span> Minor League Team
+                        </a>
+                    </li>
+                    <li class="nav-item mb-1">
+                        <a class="nav-link {% if request.endpoint == 'call_ups' %}active-link{% endif %}" href="{{ url_for('main.call_ups') }}">
+                            <span class="me-2">🔄</span> Call-Ups
+                        </a>
+                    </li>
+                    <li class="nav-item mb-1">
+                        <a class="nav-link" href="#">
+                            <span class="me-2">🤝</span> Free Agency
+                        </a>
+                    </li>
+                    <li class="nav-item mb-1">
+                        <a class="nav-link" href="#">
+                            <span class="me-2">📋</span> Draft
+                        </a>
+                    </li>
 
                     <h6 class="sidebar-heading d-flex justify-content-between align-items-center px-2 mt-4 mb-2 text-dark fw-bold text-uppercase opacity-50 small">
                         <span>League History</span>
                     </h6>
 
-                    <li class="nav-item mb-1"><a class="nav-link" href="#"><span class="me-2">📖</span> Record Books</a></li>
-                    <li class="nav-item mb-1"><a class="nav-link" href="#"><span class="me-2">🏆</span> History and Awards</a></li>
-                    <li class="nav-item mb-1"><a class="nav-link" href="#"><span class="me-2">🏛️</span> Hall of Fame</a></li>
-                    
+                    <li class="nav-item mb-1">
+                        <a class="nav-link" href="#">
+                            <span class="me-2">📖</span> Record Books
+                        </a>
+                    </li>
+                    <li class="nav-item mb-1">
+                        <a class="nav-link" href="#">
+                            <span class="me-2">🏆</span> History and Awards
+                        </a>
+                    </li>
+                    <li class="nav-item mb-1">
+                        <a class="nav-link" href="#">
+                            <span class="me-2">🏛️</span> Hall of Fame
+                        </a>
+                    </li>
                 </ul>
 
-                <!-- NEW: Vertical Ad Area in the Sidebar -->
+                <!-- Vertical Ad Area in the Sidebar -->
                 <div class="mt-4 px-2 pb-4">
                     <div class="ad-space ad-vertical rounded">
                         Advertisement<br>(160 x 600)
@@ -165,7 +178,7 @@
             <!-- The Main Content Area (85%) -->
             <main class="col-12 col-md-9 col-custom-main px-md-4 pt-4">
                 
-                <!-- NEW: Horizontal Ad Area (Kept strictly within the 85% zone) -->
+                <!-- Horizontal Ad Area -->
                 <div class="row mb-4">
                     <div class="col-12">
                         <div class="ad-space ad-horizontal rounded shadow-sm">
@@ -174,7 +187,7 @@
                     </div>
                 </div>
 
-                <!-- Your dynamic pages (index.html, major_league.html) will load right beneath the ad -->
+                <!-- Your dynamic pages will load right beneath the ad -->
                 {% block content %}
                 {% endblock %}
                 

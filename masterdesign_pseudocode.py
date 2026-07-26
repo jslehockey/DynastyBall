@@ -39,13 +39,15 @@ FA_CUP_GATE_SPLIT = 0.50 # 50% to home, 50% to away
 # ==========================================
 # 2. CONTRACTS & ROSTERS
 # ==========================================
-MINOR_LEAGUE_MINIMUM = 100000 # Flat rate for non-drafted minor leaguers
+MINOR_LEAGUE_MINIMUM = 100000 # Flat rate for non-drafted minor leaguers (23 and under)
 FA_MINIMUM_SALARY = 500000    # First-come, first-serve outside of offseason
 
 # Draft Contracts (Guaranteed until Age 25)
 DRAFT_SALARY_SCALE = {
     "Tier_1": {"Round_1": 1500000, "Round_2": 1200000, "Round_3": 900000, "Round_4": 600000},
-    "Tier_2": {"Round_1": 1200000, "Round_2": 900000, "Round_3": 700000, "Round_4": 500000}
+    "Tier_2": {"Round_1": 1200000, "Round_2": 900000, "Round_3": 700000, "Round_4": 500000},
+    "Tier_3": {"Round_1": 900000, "Round_2": 600000, "Round_3": 500000, "Round_4": 400000},
+    "Tier_4_and_below": {"Round_1": 750000, "Round_2": 450000, "Round_3": 350000, "Round_4": 200000}
 }
 
 def execute_contract_buyout(player, contract):

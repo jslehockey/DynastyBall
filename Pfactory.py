@@ -33,7 +33,7 @@ class PlayerFactory:
             "SecuritySeeker", "BetOnYourself", "RingChaser", "Pioneer"
         ]
 
-        # HITTER ARCHETYPES (13 Sub-Stats)
+        # HITTER ARCHETYPES (13 Sub-Stats) - DH REMOVED
         self.positional_archetypes = {
             "C": {
                 "Bench":  {"timing": 67, "barreling": 76, "strength": 84, "bat_speed": 76, "elevation": 86, "eye": 67, "restraint": 70, "sprint_speed": 38, "instincts": 38, "def.reaction": 57, "def.glove": 80, "def.ArmStr": 87, "def.ArmAcc": 84},
@@ -74,10 +74,6 @@ class PlayerFactory:
                 "Ruth":   {"timing": 76, "barreling": 80, "strength": 94, "bat_speed": 87, "elevation": 89, "eye": 86, "restraint": 82, "sprint_speed": 33, "instincts": 33, "def.reaction": 52, "def.glove": 52, "def.ArmStr": 76, "def.ArmAcc": 67},
                 "Clemente":{"timing": 84, "barreling": 84, "strength": 68, "bat_speed": 74, "elevation": 63, "eye": 65, "restraint": 59, "sprint_speed": 67, "instincts": 67, "def.reaction": 90, "def.glove": 84, "def.ArmStr": 93, "def.ArmAcc": 87},
                 "Gwynn":  {"timing": 91, "barreling": 89, "strength": 48, "bat_speed": 57, "elevation": 38, "eye": 86, "restraint": 82, "sprint_speed": 67, "instincts": 67, "def.reaction": 57, "def.glove": 74, "def.ArmStr": 62, "def.ArmAcc": 62}
-            },
-            "DH": {
-                "Edgar":  {"timing": 84, "barreling": 84, "strength": 78, "bat_speed": 82, "elevation": 74, "eye": 86, "restraint": 82, "sprint_speed": 33, "instincts": 33, "def.reaction": 43, "def.glove": 48, "def.ArmStr": 48, "def.ArmAcc": 48},
-                "Ortiz":  {"timing": 76, "barreling": 76, "strength": 87, "bat_speed": 86, "elevation": 84, "eye": 82, "restraint": 80, "sprint_speed": 29, "instincts": 29, "def.reaction": 38, "def.glove": 43, "def.ArmStr": 43, "def.ArmAcc": 43}
             }
         }
 
@@ -173,7 +169,8 @@ class PlayerFactory:
         age = max(18, min(age, 38))
         
         if random.random() < 0.75:
-            pos_dict = self.positional_archetypes.get(target_pos, self.positional_archetypes["DH"])
+            # FIX 1: Removed DH fallback, changed to 1B fallback just in case
+            pos_dict = self.positional_archetypes.get(target_pos, self.positional_archetypes["1B"])
             arch_name, stat_means = random.choice(list(pos_dict.items()))
         else:
             arch_name, stat_means = random.choice(list(self.general_archetypes.items()))
@@ -199,7 +196,7 @@ class PlayerFactory:
         sprint = current_stats.get("sprint_speed", 50)
         
         if target_pos in ["CF", "SS", "2B"]: range_modifier = random.randint(0, 4)
-        elif target_pos in ["1B", "C", "DH"]: range_modifier = random.randint(-5, -1)
+        elif target_pos in ["1B", "C"]: range_modifier = random.randint(-5, -1)
         else: range_modifier = random.randint(-2, 2)
         
         current_stats["def.range"] = max(25, min(99, int(random.gauss(sprint + range_modifier, std_dev))))
@@ -277,6 +274,7 @@ class PlayerFactory:
         player_obj = Player(player_id, name, attributes)
         player_obj.traits = generated_traits
         player_obj.assigned_pos = target_pos
+        player_obj.age = age # FIX 2: Explicitly mapping age to the root object for the DB
         return player_obj
 
     # ==========================================
@@ -374,22 +372,79 @@ class PlayerFactory:
         player_obj = Player(player_id, name, attributes)
         player_obj.traits = generated_traits 
         player_obj.assigned_pos = "P"
+        player_obj.age = age # FIX 2: Explicitly mapping age to the root object for the DB
         return player_obj
 
-    def generate_team_roster(self, team_name, is_expansion=True, league_tier=1):
-        positions = ["C", "1B", "2B", "3B", "SS", "LF", "CF", "RF", "DH"]
-        lineup = [self.generate_inaugural_hitter(pos, is_expansion, is_minor=False, league_tier=league_tier) for pos in positions]
+    def generate_organization(self, team_name, is_expansion=True, league_tier=1):
+        majors = []
+        minors = []
         
-        pitchers = [
-            self.generate_inaugural_pitcher("SP", is_expansion, is_minor=False, league_tier=league_tier),
-            self.generate_inaugural_pitcher("MR", is_expansion, is_minor=False, league_tier=league_tier),
-            self.generate_inaugural_pitcher("LR", is_expansion, is_minor=False, league_tier=league_tier),
-            self.generate_inaugural_pitcher("SU", is_expansion, is_minor=False, league_tier=league_tier),
-            self.generate_inaugural_pitcher("CL", is_expansion, is_minor=False, league_tier=league_tier)
-        ]
+        # ==========================================
+        # 1. MAJOR LEAGUE ROSTER (26 Players)
+        # ==========================================
         
+        # --- The Core 18 ---
+        core_hitters = ["C", "1B", "2B", "3B", "SS", "LF", "CF", "RF"]
+        core_pitchers = ["SP", "SP", "SP", "SP", "SP", "LR", "MR", "SU", "CL"]
+        
+        # --- The Flex 9 ---
+        # Randomly pick a split: 5x4, 4x5, or 6x3
+        flex_hitter_count = random.choice([4, 5, 5, 5, 6]) # Weighted slightly toward 4x4
+        flex_pitcher_count = 9 - flex_hitter_count
+        
+        hitter_pool = ["C", "1B", "2B", "3B", "SS", "LF", "CF", "RF"]
+        pitcher_pool = ["LR", "MR", "SU", "CL"]
+        
+        flex_hitters = [random.choice(hitter_pool) for _ in range(flex_hitter_count)]
+        flex_pitchers = [random.choice(pitcher_pool) for _ in range(flex_pitcher_count)]
+        
+        # Combine Core and Flex
+        all_mlb_hitters = core_hitters + flex_hitters
+        all_mlb_pitchers = core_pitchers + flex_pitchers
+        
+        # Build MLB Hitters
+        bat_order = 1
+        for pos in all_mlb_hitters:
+            p = self.generate_inaugural_hitter(pos, is_expansion, is_minor=False, league_tier=league_tier)
+            p.assigned_role = ""
+            p.batting_order = bat_order if bat_order <= 9 else 99
+            p.league_level = "MLB"
+            majors.append(p)
+            bat_order += 1
+            
+        # Build MLB Pitchers
+        for role in all_mlb_pitchers:
+            p = self.generate_inaugural_pitcher(role, is_expansion, is_minor=False, league_tier=league_tier)
+            p.assigned_role = role
+            p.batting_order = 99
+            p.league_level = "MLB"
+            majors.append(p)
+            
+        # ==========================================
+        # 2. MINOR LEAGUE ROSTER (30 Players)
+        # ==========================================
+        
+        milb_hitters = ["C", "C", "1B", "1B", "2B", "2B", "3B", "3B", "SS", "SS", "LF", "LF", "CF", "CF", "RF", "RF"]
+        milb_pitchers = ["SP", "SP", "SP", "SP", "SP", "LR", "LR", "MR", "MR", "MR", "SU", "SU", "CL", "CL"]
+        
+        bat_order = 1
+        for pos in milb_hitters:
+            p = self.generate_inaugural_hitter(pos, is_expansion, is_minor=True, league_tier=league_tier)
+            p.assigned_role = ""
+            p.batting_order = bat_order if bat_order <= 9 else 99
+            p.league_level = "AAA"
+            minors.append(p)
+            bat_order += 1
+            
+        for role in milb_pitchers:
+            p = self.generate_inaugural_pitcher(role, is_expansion, is_minor=True, league_tier=league_tier)
+            p.assigned_role = role
+            p.batting_order = 99
+            p.league_level = "AAA"
+            minors.append(p)
+
         return {
             "name": team_name,
-            "lineup": lineup,
-            "pitchers": pitchers
+            "majors": majors,
+            "minors": minors
         }

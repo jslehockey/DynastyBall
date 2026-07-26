@@ -1,29 +1,50 @@
 import sqlite3
+import csv
 
-# Point this directly to your database
-db_path = r'C:\Users\jsleh\Documents\SimGame\diamondbucs_test.db'
-
-def update_database():
-    conn = sqlite3.connect(db_path)
+def check_team_financials():
+    # Connect to your database
+    conn = sqlite3.connect('diamondbucs_test.db')
     cursor = conn.cursor()
-
-    columns_to_add = [
-        "ALTER TABLE Player_Ratings ADD COLUMN assigned_pos TEXT DEFAULT 'BENCH'",
-        "ALTER TABLE Player_Ratings ADD COLUMN batting_order INTEGER DEFAULT 99",
-        "ALTER TABLE Player_Ratings ADD COLUMN assigned_role TEXT"
-    ]
-
-    for query in columns_to_add:
-        try:
-            cursor.execute(query)
-            print(f"Success: {query}")
-        except sqlite3.OperationalError as e:
-            # If the column already exists, SQLite throws an OperationalError. We can safely ignore it.
-            print(f"Skipped (already exists): {query}")
-
-    conn.commit()
-    conn.close()
-    print("Database update complete!")
+    
+    try:
+        # Query everything from the table
+        cursor.execute("SELECT * FROM Team_Financials")
+        rows = cursor.fetchall()
+        
+        # Check if we actually have data
+        if not rows:
+            print("The 'Team_Financials' table exists, but it is currently EMPTY.")
+            return
+            
+        # Get the column names automatically from the cursor
+        headers = [description[0] for description in cursor.description]
+        
+        # Print a formatted table to the console
+        print(f"\n--- Found {len(rows)} rows in Team_Financials ---\n")
+        
+        header_str = " | ".join(f"{str(h):<15}" for h in headers)
+        print(header_str)
+        print("-" * len(header_str))
+        
+        for row in rows:
+            row_str = " | ".join(f"{str(item):<15}" for item in row)
+            print(row_str)
+            
+        # Ask to export to CSV
+        print("\n")
+        export = input("Would you like to export this to a CSV file? (y/n): ")
+        if export.lower() == 'y':
+            with open('team_financials_export.csv', 'w', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow(headers)
+                writer.writerows(rows)
+            print("Successfully exported to 'team_financials_export.csv'!")
+            
+    except sqlite3.OperationalError as e:
+        print(f"Database error (Did you create the table yet?): {e}")
+        
+    finally:
+        conn.close()
 
 if __name__ == "__main__":
-    update_database()
+    check_team_financials()

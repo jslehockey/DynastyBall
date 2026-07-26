@@ -3,6 +3,7 @@ import random
 import os
 import sqlite3
 import pandas as pd
+from Pfactory import PlayerFactory  # IMPORTING YOUR FACTORY
 
 def populate_dummy_data(file_path):
     print("--- Step 1: Checking Excel Data ---")
@@ -11,120 +12,124 @@ def populate_dummy_data(file_path):
         return False
 
     wb = openpyxl.load_workbook(file_path)
-    data_added = False
+    
+    # FIX 1: Clear existing data rows to force a fresh generation every time
+    for sheet_name in wb.sheetnames:
+        ws = wb[sheet_name]
+        if ws.max_row > 1:
+            ws.delete_rows(2, ws.max_row)
 
-    # --- 1. Worlds ---
-    if "Worlds" in wb.sheetnames and wb["Worlds"].cell(row=2, column=1).value is None:
-        wb["Worlds"].append(["Alpha", "Alpha Universe", "Yes"])
-        data_added = True
+    # Re-populate Worlds
+    wb["Worlds"].append(["Alpha", "Alpha Universe", "Yes"])
 
-    # --- 2. Teams ---
+    # Re-populate Teams
     teams_data = [
         ("Alpha-0001", "Washington", "DiamondBucs", "Jim", "Active"),
         ("Alpha-0002", "Boston", "Minutemen", "Jake", "Active"),
         ("Alpha-0003", "Miami", "Stormers", "Rafael", "Active"),
-        ("Alpha-0004", "Vaduz", "Mountaineers", "ETR", "Active"),
-        ("Alpha-0005", "Anchorage", "Aces", "JCW", "Active"),
-        ("Alpha-0006", "New York", "Team6", "Manager6", "Active"),
-        ("Alpha-0007", "Athens", "Bobcats", "Jackson", "Active"),
-        ("Alpha-0008", "Long Island", "Team8", "Manager8", "Active")
+        ("Alpha-0004", "Vaduz", "Mountaineers", "ETR", "Active")
     ]
     
     team_ids = []
-    if "Teams" in wb.sheetnames:
-        ws = wb["Teams"]
-        if ws.cell(row=2, column=1).value is None:
-            for t in teams_data:
-                team_ids.append(t[0])
-                ws.append([t[0], "Alpha", t[1], t[2], t[3], t[4], f"{t[3]}@test.com", "pw123", "Active", "#000000", "#FFFFFF", 50])
-            data_added = True
-        else:
-            for row in ws.iter_rows(min_row=2, max_col=1, values_only=True):
-                if row[0]: team_ids.append(row[0])
+    ws_teams = wb["Teams"]
+    for t in teams_data:
+        team_ids.append(t[0])
+        ws_teams.append([t[0], "Alpha", t[1], t[2], t[3], t[4], f"{t[3]}@test.com", "pw123", "Active", "#000000", "#FFFFFF", 50])
 
-    # --- 3. Parks & Financials ---
-    if "Parks" in wb.sheetnames and wb["Parks"].cell(row=2, column=1).value is None:
-        for idx, t_id in enumerate(team_ids):
-            wb["Parks"].append([f"Park-{idx+1}", t_id, f"Stadium {idx+1}", 5, 200, 150, 1000000] + [random.randint(12, 400) for _ in range(14)])
-        data_added = True
+    # Re-populate Parks
+    ws_parks = wb["Parks"]
+    for idx, t_id in enumerate(team_ids):
+        ws_parks.append([f"Park-{idx+1}", t_id, f"Stadium {idx+1}", 5, 200, 150, 1000000] + [random.randint(12, 400) for _ in range(14)])
 
-    if "Team_Financials" in wb.sheetnames and wb["Team_Financials"].cell(row=2, column=1).value is None:
-        for t_id in team_ids:
-            wb["Team_Financials"].append([t_id, 2026, 15000000, 25, 4500000, 0, 2000000, 500000, 8000000])
-        data_added = True
+    # Re-populate Financials
+    ws_fin = wb["Team_Financials"]
+    for t_id in team_ids:
+        ws_fin.append([t_id, 1, 15000000, 25, 4500000, 0, 2000000, 500000, 8000000])
 
-    # --- 4. Players, Ratings, Contracts & STATS ---
-    if "Players_Base" in wb.sheetnames and wb["Players_Base"].cell(row=2, column=1).value is None:
-        ws_base = wb["Players_Base"]
-        ws_ratings = wb["Player_Ratings"]
-        ws_contracts = wb["Contracts"]
-        ws_hit_stats = wb["Stats_Hitting"]
-        ws_pit_stats = wb["Stats_Pitching"]
+    # Re-populate Players
+    ws_base = wb["Players_Base"]
+    ws_ratings = wb["Player_Ratings"]
+    ws_contracts = wb["Contracts"]
+    ws_hit_stats = wb["Stats_Hitting"]
+    ws_pit_stats = wb["Stats_Pitching"]
+    
+    current_season = 1 
+    factory = PlayerFactory(current_season)
+    
+    for t_id in team_ids:
+        # GENERATE THE FULL ORGANIZATION USING YOUR FACTORY
+        org = factory.generate_organization(team_name=t_id, is_expansion=True, league_tier=1)
+        all_players = org["majors"] + org["minors"]
         
-        first_names = ["James", "David", "Chris", "Mike", "Alex", "Jim", "Cy", "Hank", "Brian", "Jackie"]
-        last_names = ["Johnson", "Gehrig", "Walker", "Thomas", "Jones", "Ramirez", "Anderson", "Griffey", "Moore"]
-        positions = ["P", "C", "1B", "2B", "3B", "SS", "LF", "CF", "RF"]
-        
-        hit_archs = ["Jeter", "Schmidt", "Molina", "Kent", "Rickey", "Gwynn", "Zobrist", "Gehrig", "Mauer", "Mays", "Ichiro"]
-        pit_archs = ["Ryan", "Wakefield", "Buehrle", "Pedro", "Rivera", "Gagne", "Hader", "Fingers", "Lincecum", "Gibson"]
-        
-        all_traits = ["Platoon Punisher", "Speed Demon", "Launch Angle God", "Unfazed", "Gold Glover", "Pitch to Contact", "Escape Artist", "Lights Out", "Marathon Man", "Rubber Arm", "Putaway Pitcher", "Groundball Guru", "Table Setter", "Clutch"]
+        for p in all_players:
+            # 1. Base Data
+            name_parts = p.name.split(' ', 1)
+            fname = name_parts[0]
+            lname = name_parts[1] if len(name_parts) > 1 else ""
+            
+            dev = p.attributes["development"]
+            ws_base.append([p.player_id, fname, lname, dev["peak_age"], dev["last_peak_age"], dev["archetype"]])
+            
+            # 2. Ratings & Traits
+            t_count = len(p.traits)
+            t1 = p.traits[0] if t_count > 0 else ""
+            t2 = p.traits[1] if t_count > 1 else ""
+            t3 = p.traits[2] if t_count > 2 else ""
 
-        player_counter = 1
-        
-        for t_id in team_ids:
-            for _ in range(15):
-                p_id = f"2026{str(player_counter).zfill(8)}"
-                fname = random.choice(first_names)
-                lname = random.choice(last_names)
-                pos = random.choice(positions)
-                age = random.randint(19, 35)
-                
-                arch = random.choice(pit_archs) if pos == "P" else random.choice(hit_archs)
-                
-                # 1. Base Data
-                ws_base.append([p_id, fname, lname, 27, 32, arch])
-                
-                # 2. Ratings & Psyche
-                t_count = random.choices([0, 1, 2, 3], weights=[40, 30, 20, 10])[0]
-                p_traits = random.sample(all_traits, t_count)
-                t1 = p_traits[0] if t_count > 0 else ""
-                t2 = p_traits[1] if t_count > 1 else ""
-                t3 = p_traits[2] if t_count > 2 else ""
+            recent_array = [random.randint(-4, 4) for _ in range(5)]
+            recent_str = ", ".join(map(str, recent_array))
+            psyche_mod = sum(recent_array)
+            
+            bat = p.attributes["batting"]
+            run = p.attributes["baserunning"]
+            df  = p.attributes["defense"]
+            pit = p.attributes["pitching"]
+            
+            # Extracting specific stats depending on if they are a pitcher or hitter
+            is_pitcher = p.attributes["Primary Pos"] == "P"
+            stam_max = pit["stamina"] if is_pitcher else bat["stamina"]
+            
+            assigned_pos = p.assigned_pos if p.batting_order <= 9 or is_pitcher else "BENCH"
 
-                recent_array = [random.randint(-4, 4) for _ in range(5)]
-                recent_str = ", ".join(map(str, recent_array))
-                psyche_mod = sum(recent_array)
-                
-                ratings = [random.randint(40, 99) for _ in range(14)]
-                ws_ratings.append([p_id, 2026, t_id, age, pos, "Starter", t1, t2, t3, t_count, recent_str, psyche_mod] + ratings)
-                
-                # 3. Contracts
-                c_id = f"C-{player_counter}"
-                ws_contracts.append([c_id, p_id, t_id, 2025, 2028, random.randint(50000, 2000000), "Active"])
-                
-                # 4. STATS GENERATION
-                if pos == "P":
-                    ip = random.randint(50, 200)
-                    er = int(ip * (random.uniform(2.5, 5.5) / 9))
-                    k = int(ip * random.uniform(0.7, 1.2))
-                    ws_pit_stats.append([p_id, 2026, "Regular Season", 30, random.randint(5, 20), random.randint(5, 15), 0, 0, 0, ip, int(ip*0.9), er+random.randint(0,5), er, random.randint(5, 25), random.randint(15, 60), random.randint(0, 5), k, ip*15, 1, 0, round((er*9)/ip, 2), 1.25, 3.85])
-                else:
-                    ab = random.randint(300, 600)
-                    h = int(ab * random.uniform(0.220, 0.330))
-                    hr = random.randint(5, 40)
-                    ws_hit_stats.append([p_id, 2026, "Regular Season", 150, ab+50, ab, random.randint(40, 100), h, h-(hr+25), 20, 5, hr, random.randint(30, 100), random.randint(20, 80), random.randint(0, 10), random.randint(50, 150), random.randint(0, 30), random.randint(0, 10), round(h/ab, 3), 0.350, 0.450, 0.800])
+            # FIX 2: Safely map parent pitching stats. Falls back to sub-stats if parent keys don't exist.
+            pit_velo = pit.get("velocity", pit.get("arm_speed", 0))
+            pit_ctrl = pit.get("control", pit.get("accuracy", 0))
+            pit_mov  = pit.get("movement", pit.get("spin_rate", 0))
 
-                player_counter += 1
-                
-        data_added = True
+            ratings_row = [
+                p.player_id, current_season, t_id, p.league_level, dev["age"], p.attributes["Primary Pos"], "Active", 
+                t1, t2, t3, t_count, recent_str, psyche_mod,
+                assigned_pos, p.assigned_role, p.batting_order,
+                # Hitting Stats
+                bat["timing"], bat["barreling"], bat["strength"], bat["bat_speed"], bat["elevation"], 
+                bat["eye"], bat["restraint"], run["sprint_speed"], run["instincts"], 
+                # Defense
+                df["def.range"], df["def.reaction"], df["def.glove"], df["def.ArmStr"], df["def.ArmAcc"],
+                # Pitching/Stamina
+                stam_max, stam_max, 
+                pit_velo, pit["arm_speed"], pit["deception"], 
+                pit_ctrl, pit["accuracy"], pit["command"], 
+                pit_mov, pit["spin_rate"], pit["bite"]
+            ]
 
-    if data_added:
-        wb.save(file_path)
-        print("[+] Dummy data generated and saved to Excel.")
-    else:
-        print("[*] Excel file already populated. Skipping generation.")
-        
+            ws_ratings.append(ratings_row)
+            
+            # 3. Dummy Contract & Stats mapping (unchanged logic)
+            ws_contracts.append([f"C-{p.player_id}", p.player_id, t_id, 1, 4, random.randint(50000, 2000000), "Active"])
+            
+            if is_pitcher:
+                ip = random.randint(50, 200)
+                er = int(ip * (random.uniform(2.5, 5.5) / 9))
+                k = int(ip * random.uniform(0.7, 1.2))
+                ws_pit_stats.append([p.player_id, current_season, "Regular Season", 30, random.randint(5, 20), random.randint(5, 15), 0, 0, 0, ip, int(ip*0.9), er+random.randint(0,5), er, random.randint(5, 25), random.randint(15, 60), random.randint(0, 5), k, ip*15, 1, 0, round((er*9)/ip, 2), 1.25, 3.85])
+            else:
+                ab = random.randint(300, 600)
+                h = int(ab * random.uniform(0.220, 0.330))
+                hr = random.randint(5, 40)
+                ws_hit_stats.append([p.player_id, current_season, "Regular Season", 150, ab+50, ab, random.randint(40, 100), h, h-(hr+25), 20, 5, hr, random.randint(30, 100), random.randint(20, 80), random.randint(0, 10), random.randint(50, 150), random.randint(0, 30), random.randint(0, 10), round(h/ab, 3), 0.350, 0.450, 0.800])
+
+    wb.save(file_path)
+    print("[+] Dummy data generated and saved to Excel.")
     return True
 
 def convert_excel_to_sqlite(excel_file, db_file):
@@ -135,9 +140,7 @@ def convert_excel_to_sqlite(excel_file, db_file):
     for sheet_name in excel_data.sheet_names:
         df = pd.read_excel(excel_file, sheet_name=sheet_name)
         if len(df.columns) == 0 or "Unnamed" in str(df.columns[0]):
-            print(f"[*] Skipping tab '{sheet_name}' (Blank or missing headers)")
             continue
-            
         print(f"[*] Importing tab: {sheet_name}...")
         df.to_sql(sheet_name, conn, if_exists='replace', index=False)
         
@@ -147,6 +150,5 @@ def convert_excel_to_sqlite(excel_file, db_file):
 if __name__ == "__main__":
     excel_filename = "DynastyBaseballSim.xlsx"
     db_filename = "diamondbucs_test.db"
-    
     if populate_dummy_data(excel_filename):
         convert_excel_to_sqlite(excel_filename, db_filename)
