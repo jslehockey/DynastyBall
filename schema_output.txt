@@ -1,0 +1,261 @@
+--- Database Schema for diamondbucs_test.db ---
+
+-- Table: players_base
+CREATE TABLE players_base (
+	player_id INTEGER NOT NULL, 
+	first_name VARCHAR(50) NOT NULL, 
+	last_name VARCHAR(50) NOT NULL, 
+	peak_age INTEGER NOT NULL, 
+	degrade_age INTEGER NOT NULL, 
+	archetype VARCHAR(50), 
+	PRIMARY KEY (player_id)
+);
+
+-- Table: worlds
+CREATE TABLE worlds (
+	world_id INTEGER NOT NULL, 
+	world_name VARCHAR(100) NOT NULL, 
+	is_active BOOLEAN, 
+	PRIMARY KEY (world_id)
+);
+
+-- Table: stats_hitting
+CREATE TABLE stats_hitting (
+	stat_id INTEGER NOT NULL, 
+	player_id INTEGER NOT NULL, 
+	season INTEGER NOT NULL, 
+	competition VARCHAR(50), 
+	g INTEGER, 
+	pa INTEGER, 
+	ab INTEGER, 
+	r INTEGER, 
+	h INTEGER, 
+	"1b" INTEGER, 
+	"2b" INTEGER, 
+	"3b" INTEGER, 
+	hr INTEGER, 
+	rbi INTEGER, 
+	bb INTEGER, 
+	hbp INTEGER, 
+	k INTEGER, 
+	sb INTEGER, 
+	cs INTEGER, 
+	avg FLOAT, 
+	obp FLOAT, 
+	slg FLOAT, 
+	ops FLOAT, 
+	PRIMARY KEY (stat_id), 
+	FOREIGN KEY(player_id) REFERENCES players_base (player_id)
+);
+
+-- Table: stats_pitching
+CREATE TABLE stats_pitching (
+	stat_id INTEGER NOT NULL, 
+	player_id INTEGER NOT NULL, 
+	season INTEGER NOT NULL, 
+	competition VARCHAR(50), 
+	g INTEGER, 
+	w INTEGER, 
+	l INTEGER, 
+	sv INTEGER, 
+	hld INTEGER, 
+	bs INTEGER, 
+	ip FLOAT, 
+	h INTEGER, 
+	r INTEGER, 
+	er INTEGER, 
+	hr INTEGER, 
+	bb INTEGER, 
+	hbp INTEGER, 
+	k INTEGER, 
+	pitches INTEGER, 
+	cg INTEGER, 
+	sho INTEGER, 
+	era FLOAT, 
+	whip FLOAT, 
+	fip FLOAT, 
+	PRIMARY KEY (stat_id), 
+	FOREIGN KEY(player_id) REFERENCES players_base (player_id)
+);
+
+-- Table: stats_fielding
+CREATE TABLE stats_fielding (
+	stat_id INTEGER NOT NULL, 
+	player_id INTEGER NOT NULL, 
+	season INTEGER NOT NULL, 
+	competition VARCHAR(50), 
+	g INTEGER, 
+	po INTEGER, 
+	a INTEGER, 
+	e INTEGER, 
+	tc INTEGER, 
+	fpct FLOAT, 
+	PRIMARY KEY (stat_id), 
+	FOREIGN KEY(player_id) REFERENCES players_base (player_id)
+);
+
+-- Table: awards
+CREATE TABLE awards (
+	award_id INTEGER NOT NULL, 
+	player_id INTEGER NOT NULL, 
+	season INTEGER NOT NULL, 
+	competition VARCHAR(50), 
+	title VARCHAR(100) NOT NULL, 
+	PRIMARY KEY (award_id), 
+	FOREIGN KEY(player_id) REFERENCES players_base (player_id)
+);
+
+-- Table: teams
+CREATE TABLE teams (
+	team_id INTEGER NOT NULL, 
+	world_id INTEGER NOT NULL, 
+	location VARCHAR(100) NOT NULL, 
+	nickname VARCHAR(100) NOT NULL, 
+	manager VARCHAR(100), 
+	status VARCHAR(20), 
+	user_email VARCHAR(120), 
+	user_pw VARCHAR(255), 
+	sub_status INTEGER, 
+	color_primary VARCHAR(7), 
+	color_secondary VARCHAR(7), 
+	prestige INTEGER, 
+	PRIMARY KEY (team_id), 
+	FOREIGN KEY(world_id) REFERENCES worlds (world_id), 
+	UNIQUE (user_email)
+);
+
+-- Table: player_ratings
+CREATE TABLE player_ratings (
+	rating_id INTEGER NOT NULL, 
+	player_id INTEGER NOT NULL, 
+	team_id INTEGER, 
+	season INTEGER NOT NULL, 
+	league_level INTEGER NOT NULL, 
+	age INTEGER NOT NULL, 
+	position VARCHAR(10), 
+	role VARCHAR(20), 
+	trait_1 VARCHAR(50), 
+	trait_2 VARCHAR(50), 
+	trait_3 VARCHAR(50), 
+	trait_count INTEGER, 
+	recent_form INTEGER, 
+	psyche_mod INTEGER, 
+	assigned_pos VARCHAR(10), 
+	assigned_role VARCHAR(20), 
+	batting_order INTEGER, 
+	con_timing INTEGER NOT NULL, 
+	con_barrel INTEGER NOT NULL, 
+	pow_str INTEGER NOT NULL, 
+	pow_batspd INTEGER NOT NULL, 
+	pow_elev INTEGER NOT NULL, 
+	disc_eye INTEGER NOT NULL, 
+	disc_restr INTEGER NOT NULL, 
+	spd_sprint INTEGER NOT NULL, 
+	spd_inst INTEGER NOT NULL, 
+	def_range INTEGER NOT NULL, 
+	def_react INTEGER NOT NULL, 
+	def_glove INTEGER NOT NULL, 
+	def_armstr INTEGER NOT NULL, 
+	def_armacc INTEGER NOT NULL, 
+	stam_max INTEGER NOT NULL, 
+	stam_cur INTEGER NOT NULL, 
+	pit_velo INTEGER NOT NULL, 
+	pit_vel_armspd INTEGER NOT NULL, 
+	pit_vel_decept INTEGER NOT NULL, 
+	pit_ctrl INTEGER NOT NULL, 
+	pit_ctrl_acc INTEGER NOT NULL, 
+	pit_ctrl_cmd INTEGER NOT NULL, 
+	pit_mov INTEGER NOT NULL, 
+	pit_mov_spin INTEGER NOT NULL, 
+	pit_mov_bite INTEGER NOT NULL, 
+	PRIMARY KEY (rating_id), 
+	FOREIGN KEY(player_id) REFERENCES players_base (player_id), 
+	FOREIGN KEY(team_id) REFERENCES teams (team_id)
+);
+
+-- Table: contracts
+CREATE TABLE contracts (
+	contract_id INTEGER NOT NULL, 
+	player_id INTEGER NOT NULL, 
+	team_id INTEGER NOT NULL, 
+	year_start INTEGER NOT NULL, 
+	year_end INTEGER NOT NULL, 
+	cost_per_season INTEGER NOT NULL, 
+	status VARCHAR(20), 
+	PRIMARY KEY (contract_id), 
+	FOREIGN KEY(player_id) REFERENCES players_base (player_id), 
+	FOREIGN KEY(team_id) REFERENCES teams (team_id)
+);
+
+-- Table: season_results
+CREATE TABLE season_results (
+	game_id INTEGER NOT NULL, 
+	season INTEGER NOT NULL, 
+	day INTEGER NOT NULL, 
+	competition VARCHAR(50), 
+	away_team_id INTEGER NOT NULL, 
+	away_score INTEGER, 
+	home_team_id INTEGER NOT NULL, 
+	home_score INTEGER, 
+	PRIMARY KEY (game_id), 
+	FOREIGN KEY(away_team_id) REFERENCES teams (team_id), 
+	FOREIGN KEY(home_team_id) REFERENCES teams (team_id)
+);
+
+-- Table: parks
+CREATE TABLE parks (
+	park_id INTEGER NOT NULL, 
+	team_id INTEGER NOT NULL, 
+	name VARCHAR(100) NOT NULL, 
+	seasons_played INTEGER, 
+	record_w INTEGER, 
+	record_l INTEGER, 
+	population INTEGER, 
+	dim_lf_line INTEGER, 
+	dim_lf_height INTEGER, 
+	dim_dead_lf INTEGER, 
+	dim_dead_lf_height INTEGER, 
+	dim_lc_gap INTEGER, 
+	dim_lc_height INTEGER, 
+	dim_dead_center INTEGER, 
+	dim_dead_center_height INTEGER, 
+	dim_rc_gap INTEGER, 
+	dim_rc_height INTEGER, 
+	dim_dead_rf INTEGER, 
+	dim_dead_rf_height INTEGER, 
+	dim_rf_line INTEGER, 
+	dim_rf_height INTEGER, 
+	PRIMARY KEY (park_id), 
+	FOREIGN KEY(team_id) REFERENCES teams (team_id)
+);
+
+-- Table: team_financials
+CREATE TABLE team_financials (
+	financial_id INTEGER NOT NULL, 
+	team_id INTEGER NOT NULL, 
+	season INTEGER NOT NULL, 
+	balance INTEGER, 
+	players_on_contract INTEGER, 
+	cost_players INTEGER, 
+	income_fa_cup INTEGER, 
+	income_media INTEGER, 
+	income_adwatch INTEGER, 
+	income_attendance INTEGER, 
+	PRIMARY KEY (financial_id), 
+	FOREIGN KEY(team_id) REFERENCES teams (team_id)
+);
+
+-- Table: game_events
+CREATE TABLE game_events (
+	event_id INTEGER NOT NULL, 
+	game_id INTEGER NOT NULL, 
+	inning INTEGER NOT NULL, 
+	half VARCHAR(10) NOT NULL, 
+	player_id INTEGER NOT NULL, 
+	event_type VARCHAR(50), 
+	description TEXT, 
+	PRIMARY KEY (event_id), 
+	FOREIGN KEY(game_id) REFERENCES season_results (game_id), 
+	FOREIGN KEY(player_id) REFERENCES players_base (player_id)
+);
+

@@ -1,12 +1,13 @@
 # ==========================================
 # GameSim.py (Master Controller)
 # ==========================================
-# Orchestrates the League Environment, runs the 
-# simulation loops, and delegates tasks to submodules.
-# ==========================================
 import random
-import gspread
 import time
+
+# FIXED IMPORTS: 
+from extensions import db
+from app import app, Game, GameEvent 
+from sqlalchemy import text
 
 from model_league import LeagueEnvironment
 from flow_fullGame import FullGame
@@ -18,19 +19,8 @@ import gameSim_reporter as reporter
 import gameSim_economy as economy
 import gameSim_season as season
 
-# --- CONFIGURATION ---
-SPREADSHEET_ID = "1mC6-qF2_niu5756t5Q1yI-QJL_fZcvaF_KkOTrHX3Yc"
-CLIENT = gspread.service_account(filename='credentials.json')
-SHEET = CLIENT.open_by_key(SPREADSHEET_ID)
-
 class SimulationEngine:
     def __init__(self):
-        # 1. Static Configuration
-        self.system_sheets = [
-            "Stats", "StatLog", "GameLog", "Standings", "Parks", 
-            "BoxScores", "Playoffs", "Draft Class", "TeamRegistry"
-        ]
-        
         # 2. State (Populated dynamically via builder)
         self.teams = [] 
         self.team_ids = {}
@@ -52,7 +42,6 @@ class SimulationEngine:
         return w / (w + l) if (w + l) > 0 else 0.500
 
     def _count_superstars(self, team_obj):
-        """Rough estimation of superstars based on traits/stats until OVR is fully integrated."""
         count = 0
         for p in team_obj.lineup + team_obj.game_pitchers:
             if p and len(p.traits) >= 2: count += 1 
@@ -93,7 +82,6 @@ class SimulationEngine:
         away_obj = builder.build_team_object(self, away_team, away_sp_role)
         home_obj = builder.build_team_object(self, home_team, home_sp_role)
 
-        # Calculate Economy & Modifiers
         h_park = self.parks.get(home_team, {})
         a_park = self.parks.get(away_team, {})
 
@@ -114,9 +102,8 @@ class SimulationEngine:
         
         modifiers = economy.get_homefield_modifiers(attendance_data["attendance"])
 
-        # Record Targets
-        away_hr_record = self.record_book.get_franchise_records(away_team, "HR", record_type="season", limit=1)
-        home_hr_record = self.record_book.get_franchise_records(home_team, "HR", record_type="season", limit=1)
+        away_hr_record = self.record_book.get_franchise_records(away_team, "HR", record_type="season", limit=1) if self.record_book else []
+        home_hr_record = self.record_book.get_franchise_records(home_team, "HR", record_type="season", limit=1) if self.record_book else []
         
         target_hr_away = away_hr_record[0][3] if away_hr_record else 0
         target_hr_home = home_hr_record[0][3] if home_hr_record else 0
@@ -133,101 +120,46 @@ class SimulationEngine:
         game.play_game()
 
         # =====================================
-        # Boxscore Formatting & Export Payload
+        # SAVE GAME SCRIPT TO SQLITE DATABASE
         # =====================================
-        away_hits = game.away.stats["batting"]["H"]
-        home_hits = game.home.stats["batting"]["H"]
-        away_errors = game.away.stats["defense"]["E"]
-        home_errors = game.home.stats["defense"]["E"]
-        
-        max_innings = max(9, game.inning - 1)
-        header_row = ["Team"] + [str(i) for i in range(1, max_innings + 1)] + ["R", "H", "E"]
-        
-        away_row = [away_team] + [str(x) if x is not None else "-" for x in game.away.linescore]
-        while len(away_row) <= max_innings: away_row.append("-")
-        away_row += [str(game.away.stats["batting"]["R"]), str(away_hits), str(away_errors)]
-        
-        home_row = [home_team] + [str(x) if x is not None else "X" for x in game.home.linescore]
-        while len(home_row) <= max_innings: home_row.append("X" if len(home_row) == max_innings else "-")
-        home_row += [str(game.home.stats["batting"]["R"]), str(home_hits), str(home_errors)]
-        
-        wp_name, lp_name, sv_name = "", "", ""
-        all_pitchers = game.away.game_pitchers + game.home.game_pitchers
-        for p in all_pitchers:
-            decision = getattr(p, 'game_decision', '')
-            if decision == "W": wp_name = p.name
-            elif decision == "L": lp_name = p.name
-            elif decision == "SV": sv_name = p.name
+        away_id = self.team_ids.get(away_team, 2)
+        home_id = self.team_ids.get(home_team, 1)
+
+        new_game = Game(
+            season=self.current_day, 
+            competition=match_type,
+            home_team_id=int(home_id),
+            away_team_id=int(away_id),
+            home_score=game.home.stats["batting"]["R"],
+            away_score=game.away.stats["batting"]["R"],
+            status='Final'
+        )
+        db.session.add(new_game)
+        db.session.commit()
+
+        events_to_insert = []
+        for index, ev in enumerate(game.game_events, start=1):
+            events_to_insert.append(GameEvent(
+                game_id=new_game.game_id,
+                event_index=index,
+                inning=ev["inning"],
+                half_inning=ev["half"],
+                event_type=ev["type"],
+                player_name=ev["player"],
+                event_text=ev["desc"],
+                outs_after=ev["outs"],
+                home_score_after=ev["home_score"],
+                away_score_after=ev["away_score"],
+                runner_1b=ev["r1"],
+                runner_2b=ev["r2"],
+                runner_3b=ev["r3"],
+                pitch_log=ev.get("pitch_log", "")
+            ))
             
-        decision_str = f"WP: {wp_name} | LP: {lp_name}"
-        if sv_name: decision_str += f" | SV: {sv_name}"
+        db.session.bulk_save_objects(events_to_insert)
+        db.session.commit()
+        print(f"  [DATABASE] Saved Game #{new_game.game_id} to SQLite!")
 
-        game_box = []
-        game_box.append([f"Day {self.current_day}: {away_team} at {home_team}"])
-        
-        att_str = f"Attendance: {attendance_data['attendance']:,} ({attendance_data['attendance_pct']}%) | Atmosphere: {modifiers['atmosphere']} | Gate Rev: ${attendance_data['game_revenue']:,.2f}"
-        game_box.append([att_str])
-        
-        game_box.append(header_row)
-        game_box.append(away_row)
-        game_box.append(home_row)
-        game_box.append([decision_str])
-        game_box.append([]) 
-
-        game_box.append(["--- BATTING ---"])
-        game_box.append([f"{away_team} Hitters", "AB", "R", "H", "HR", "RBI", "BB", "K"])
-        for p in game.away.lineup:
-            b = p.stats["batting"]
-            game_box.append([p.name, b["AB"], b["R"], b["H"], b["HR"], b["RBI"], b["BB"], b["K"]])
-            
-        game_box.append([])
-        game_box.append([f"{home_team} Hitters", "AB", "R", "H", "HR", "RBI", "BB", "K"])
-        for p in game.home.lineup:
-            b = p.stats["batting"]
-            game_box.append([p.name, b["AB"], b["R"], b["H"], b["HR"], b["RBI"], b["BB"], b["K"]])
-
-        game_box.append([])
-
-        game_box.append(["--- PITCHING ---"])
-        game_box.append([f"{away_team} Pitchers", "IP", "H", "R", "ER", "BB", "K", "HR", "Pitches"])
-        for p in game.away.game_pitchers:
-            pit = p.stats["pitching"]
-            outs = pit["Outs"]
-            ip_str = f"{outs // 3}.{outs % 3}"
-            game_box.append([p.name, ip_str, pit["H"], pit["R"], pit["ER"], pit["BB"], pit["K"], pit["HR"], pit["Pitches"]])
-
-        game_box.append([])
-        game_box.append([f"{home_team} Pitchers", "IP", "H", "R", "ER", "BB", "K", "HR", "Pitches"])
-        for p in game.home.game_pitchers:
-            pit = p.stats["pitching"]
-            outs = pit["Outs"]
-            ip_str = f"{outs // 3}.{outs % 3}"
-            game_box.append([p.name, ip_str, pit["H"], pit["R"], pit["ER"], pit["BB"], pit["K"], pit["HR"], pit["Pitches"]])
-
-        post_game_milestones = game.check_milestones()
-        for m in post_game_milestones:
-            game.game_events.append(["Final", "End", "League", "Game Milestone", "Team/Staff", m])
-
-        event_log = [["--- NOTABLE GAME EVENTS ---"]]
-        event_log.append(["Inning", "Half", "Team", "Event Type", "Player", "Play Description"])
-        
-        if not game.game_events:
-            event_log.append(["", "", "", "No notable events recorded.", "", ""])
-        else:
-            for event in game.game_events:
-                event_log.append(event)
-                
-        max_rows = max(len(game_box), len(event_log))
-        pad_width = max(max_innings + 4, 11) + 2
-        
-        for i in range(max_rows):
-            left_row = game_box[i] if i < len(game_box) else []
-            right_row = event_log[i] if i < len(event_log) else []
-            padded_left = left_row + [""] * (pad_width - len(left_row))
-            self.boxscores.append(padded_left + right_row)
-
-        self.boxscores.append(["=" * (pad_width + 6)]) 
-        
         # Adjust Standings
         away_runs = game.away.stats["batting"]["R"]
         home_runs = game.home.stats["batting"]["R"]
@@ -263,18 +195,13 @@ class SimulationEngine:
                 p_stats = obj_player.stats["pitching"]
                 f_stats = obj_player.stats.get("defense", {"PO": 0, "A": 0, "E": 0, "TC": 0})
                 
-                # --- FIXED: Accumulate Games Played ---
-                # Now checks if a pitcher threw even a single pitch
                 if b_stats["PA"] > 0 or p_stats["Pitches"] > 0 or f_stats["TC"] > 0: 
                     s["G"] += 1
                 
-                # --- Accumulate Batting ---
                 for key in ["PA", "AB", "R", "H", "1B", "2B", "3B", "HR", "RBI", "BB", "HBP", "SB", "CS", "SF", "GIDP"]:
                     s[key] += b_stats.get(key, 0)
                 s["K_bat"] += b_stats.get("K", 0) 
                 
-                # --- FIXED: Accumulate Pitching ---
-                # Track raw outs, NOT decimal IP!
                 s["Outs_pit"] = s.get("Outs_pit", 0) + p_stats["Outs"]
                 for key in ["W", "L", "SV", "HLD", "BS", "ER", "CG", "SHO", "Pitches"]:
                     s[key] += p_stats.get(key, 0)
@@ -285,74 +212,10 @@ class SimulationEngine:
                 s["HBP_allowed"] += p_stats.get("HBP", 0)
                 s["K_pit"] += p_stats.get("K", 0)
 
-                # ---> ADD THIS PRINT STATEMENT <---
-                if f_stats["TC"] > 0:
-                    print(f" 📊 EXTRACTING STATS: {obj_player.name} recorded {f_stats['TC']} Total Chances this game.")
-
-                # --- Accumulate Fielding ---
                 for key in ["PO", "A", "E", "TC"]:
                     s[key] += f_stats.get(key, 0)
-            
-            # --- STREAK & FORM TRACKING (Preserved) ---
-            b_stats = obj_player.stats["batting"]
-            if b_stats["PA"] > 0:
-                # NEW: Calculate an offensive Game Score instead of just H/AB
-                g_score = (b_stats.get('1B', 0) * 1) + (b_stats.get('2B', 0) * 2) + (b_stats.get('3B', 0) * 3) + (b_stats.get('HR', 0) * 4)
-                g_score += b_stats.get('BB', 0) + b_stats.get('HBP', 0) 
-                g_score -= b_stats.get('K', 0) # Penalize strikeouts
-                
-                new_form = str(g_score)
-                
-                form_list = [g.strip() for g in obj_player.recent_form_str.split(',') if g.strip()]
-                form_list.append(new_form)
-                obj_player.recent_form_str = ", ".join(form_list[-5:])
-
-                # Keep standard streak tracking
-                if b_stats["H"] > 0:
-                    obj_player.current_hit_streak += 1
-                    obj_player.longest_hit_streak = max(obj_player.current_hit_streak, obj_player.longest_hit_streak)
-                elif b_stats["AB"] > 0:
-                    obj_player.current_hit_streak = 0
-                    
-                if (b_stats["H"] + b_stats["BB"] + b_stats.get("HBP", 0)) > 0:
-                    obj_player.current_obp_streak += 1
-                    obj_player.longest_obp_streak = max(obj_player.current_obp_streak, obj_player.longest_obp_streak)
-                else: obj_player.current_obp_streak = 0
-
-            p_stats = obj_player.stats["pitching"]
-            if p_stats["Outs"] > 0 or p_stats["Pitches"] > 0:
-                # NEW: Pitcher Game Score
-                p_score = p_stats["Outs"] + p_stats["K"]
-                p_score -= (p_stats["ER"] * 2) + p_stats["BB"] + p_stats.get("HBP", 0)
-                
-                # We save it as "Score-Outs" so we can calculate a rate
-                new_form = f"{p_score}-{p_stats['Outs']}"
-                
-                form_list = [g.strip() for g in obj_player.recent_form_str.split(',') if g.strip()]
-                form_list.append(new_form)
-                obj_player.recent_form_str = ", ".join(form_list[-5:])
-
-                if p_stats["ER"] == 0 and p_stats["Outs"] > 0:
-                    obj_player.current_scoreless_outs += p_stats["Outs"]
-                    obj_player.longest_scoreless_outs = max(obj_player.current_scoreless_outs, obj_player.longest_scoreless_outs)
-                else: obj_player.current_scoreless_outs = 0
-
-            # --- UPDATE FLATTENED ROSTER ---
-            for flat_player in self.rosters[team_name]:
-                if str(flat_player["ID"]) == pid:
-                    max_stam = flat_player.get("Max Stam", 100)
-                    flat_player["Cur Stam"] = getattr(obj_player, 'current_stamina', max_stam)
-                    flat_player["Cur Hit Strk"] = obj_player.current_hit_streak
-                    flat_player["Max Hit Strk"] = obj_player.longest_hit_streak
-                    flat_player["Cur OBP Strk"] = obj_player.current_obp_streak
-                    flat_player["Max OBP Strk"] = obj_player.longest_obp_streak
-                    flat_player["Cur Scoreless Outs"] = obj_player.current_scoreless_outs
-                    flat_player["Max Scoreless Outs"] = obj_player.longest_scoreless_outs
-                    flat_player["Recent Form"] = obj_player.recent_form_str
-                    break
 
     def _run_daily_slate(self, is_bye):
-        season.recover_daily_stamina(self, is_bye=is_bye)
         if is_bye:
             print(f"\n[LEAGUE BYE DAY] All teams are resting and recovering stamina.")
         else:
@@ -361,57 +224,39 @@ class SimulationEngine:
             for away, home in matchups:
                 self.simulate_game(away, home, match_type="Regular")
             self.current_day += 1
-        reporter.export_all(self, SHEET)
 
     def simulate_next_block(self):
-        # This is the line that was missing! It defines the 'block' variable.
-        block = season.get_current_sim_block(self)
-        # NEW: Calculate the current day based on games played so the schedule rotates!
-        # Assuming 8 teams playing every active day, total wins+losses / 8 = active days played.
+        # Defaulting to Block 1 for SQLite testing without the Google Sheets season logic
+        block = 1 
         total_games_played = sum([self.standings[t]["W"] + self.standings[t]["L"] for t in self.teams])
-        self.current_day = int(total_games_played / (len(self.teams) / 2))
+        self.current_day = int(total_games_played / max(1, (len(self.teams) / 2)))
 
         print(f"\n" + "="*50)
         print(f"INITIATING SIM-STATE BLOCK {block}")
         print("="*50)
         
-        if 1 <= block <= 7 or 19 <= block <= 25:
-            print(f"Format: 4 Active Game Days")
-            for _ in range(4): self._run_daily_slate(is_bye=False)
-                
-        elif 8 <= block <= 18:
-            print(f"Format: 3 Active Game Days, 1 League-Wide Bye")
-            bye_day_index = random.choice([1, 2]) 
-            for i in range(4):
-                self._run_daily_slate(is_bye=(i == bye_day_index))
-                
-        # --- UPDATED PLAYOFF AND OFFSEASON STRUCTURE ---
-        elif block == 26:
-            print(f"Format: Playoff Round 1 (Semifinals)")
-            # You may need to pass a round identifier to your season module
-            season.simulate_playoff_block(self, SHEET, playoff_round=1)
-            
-        elif block == 27:
-            print(f"Format: Playoff Round 2 (Championship)")
-            season.simulate_playoff_block(self, SHEET, playoff_round=2)
-            
-        elif block == 28:
-            print(f"Format: Offseason Progression & Regression")
-            season.run_offseason_progression(self, SHEET)
-        else:
-            print("\nSeason has fully concluded. Please reset your Standings to start a new year.")
+        for _ in range(4): self._run_daily_slate(is_bye=False)
 
 def run_live_test_environment():
     print("BASEBALL FRANCHISE CLI")
-    engine = SimulationEngine()
-    builder.load_state(engine, SHEET)
     
-    current_block = season.get_current_sim_block(engine)
-    print(f"\nReady to manually trigger Sim-State Block {current_block}")
-    
-    input("\nPress ENTER to run the current block (or CTRL+C to quit)...")
-    engine.simulate_next_block()
-    print("\nBlock complete. Run the script again when you are ready for the next block.")
+    with app.app_context():
+        # --- NEW: Drop the old broken tables so they can be rebuilt ---
+        db.session.execute(text("DROP TABLE IF EXISTS game_events"))
+        db.session.execute(text("DROP TABLE IF EXISTS games"))
+        db.session.commit()
+        
+        # Now create them fresh with the perfect schema!
+        db.create_all()  
+        
+        engine = SimulationEngine()
+        builder.load_state_from_db(engine)
+        
+        print(f"\nReady to manually trigger Sim-State Block 1")
+        input("\nPress ENTER to run the current block (or CTRL+C to quit)...")
+        
+        engine.simulate_next_block()
+        print("\nBlock complete. Games have been saved to the database.")
 
 if __name__ == "__main__":
     run_live_test_environment()

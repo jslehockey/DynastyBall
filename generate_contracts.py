@@ -1,3 +1,5 @@
+###generate_contracts.py
+
 import sqlite3
 import random
 

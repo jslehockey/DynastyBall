@@ -4,6 +4,7 @@
 # Handles all physical park dimensions, wall heights, 
 # and environmental factors for the simulation.
 # ==========================================
+from extensions import db
 
 DEFAULT_DIMENSIONS = {
     "Left Field Line": 340, 
@@ -35,3 +36,30 @@ class Stadium:
             for sector, height in custom_heights.items():
                 if height and int(height) > 0:
                     self.heights[sector] = int(height)
+
+# --- DATABASE MODELS ---
+
+class Park(db.Model):
+    __tablename__ = 'parks'
+    park_id = db.Column(db.Integer, primary_key=True)
+    team_id = db.Column(db.Integer, db.ForeignKey('teams.team_id'), nullable=False)
+    name = db.Column(db.String(100), nullable=False)
+    seasons_played = db.Column(db.Integer, default=0)
+    record_w = db.Column(db.Integer, default=0)
+    record_l = db.Column(db.Integer, default=0)
+    population = db.Column(db.Integer)
+    # Dimensions (Distance and Wall Height)
+    dim_lf_line = db.Column(db.Integer)
+    dim_lf_height = db.Column(db.Integer)
+    dim_dead_lf = db.Column(db.Integer)
+    dim_dead_lf_height = db.Column(db.Integer)
+    dim_lc_gap = db.Column(db.Integer)
+    dim_lc_height = db.Column(db.Integer)
+    dim_dead_center = db.Column(db.Integer)
+    dim_dead_center_height = db.Column(db.Integer)
+    dim_rc_gap = db.Column(db.Integer)
+    dim_rc_height = db.Column(db.Integer)
+    dim_dead_rf = db.Column(db.Integer)
+    dim_dead_rf_height = db.Column(db.Integer)
+    dim_rf_line = db.Column(db.Integer)
+    dim_rf_height = db.Column(db.Integer)

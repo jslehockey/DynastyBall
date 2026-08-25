@@ -74,6 +74,16 @@
             color: #000;
             line-height: 1;
         }
+
+        .sortable-header {
+            cursor: pointer;
+            user-select: none;
+            transition: color 0.2s;
+        }
+
+        .sortable-header:hover {
+            color: var(--team-color-1);
+        }
         
         /* Positioning */
         .wb-c  { bottom: 4%; left: 50%; }
@@ -93,17 +103,23 @@
         <h2 class="mb-0 fw-bold text-uppercase">Front Office Dashboard</h2>
         
         <div class="d-flex gap-3">
-            <!-- Note: Replaced 'text-red' with Bootstrap's 'text-danger' -->
+            <!-- Majors Badge with Rank -->
             <div class="roster-limit-badge shadow-sm {{ 'text-dark' if majors_count <= 26 else 'text-danger bg-danger-subtle border-danger' }}">
-                <span class="fs-6 text-muted me-1 fw-normal">Active</span> {{ majors_count }}/26
+                <span class="fs-6 text-muted me-1 fw-normal">Majors:</span> {{ limits.mlb_count }}/26 
+                &nbsp;|&nbsp; <span class="text-success fw-bold">${{ "{:,.1f}".format(team_ranks.mlb_payroll / 1000000) }}M</span>
+                <span class="badge bg-secondary ms-1 fs-6">#{{ team_ranks.mlb_rank }}</span>
             </div>
+            
+            <!-- Minors Badge with Rank -->
             <div class="roster-limit-badge shadow-sm {{ 'text-dark' if aaa_count <= 30 else 'text-danger bg-danger-subtle border-danger' }}">
-                <span class="fs-6 text-muted me-1 fw-normal">AAA</span> {{ aaa_count }}/30
+                <span class="fs-6 text-muted me-1 fw-normal">Minors:</span> {{ limits.aaa_count }}/30 
+                &nbsp;|&nbsp; <span class="text-success fw-bold">${{ "{:,.1f}".format(team_ranks.aaa_payroll / 1000000) }}M</span>
+                <span class="badge bg-secondary ms-1 fs-6">#{{ team_ranks.aaa_rank }}</span>
             </div>
         </div>
     </div>
 
-    <!-- TOP ROW: Ledger & Expiring Contracts -->
+    <!-- TOP ROW: Ledger, Capital Over Time, Expiring Contracts -->
     <div class="row g-4 mb-4">
         
         <!-- Module 1: Budget Ledger -->
@@ -117,13 +133,28 @@
                         <span class="text-muted fw-bold">Starting Budget:</span>
                         <span class="ledger-val text-success">${{ "{:,.0f}".format(finances.balance) }}</span>
                     </div>
-                    <div class="d-flex justify-content-between mb-3 pb-2 border-bottom">
-                        <span class="text-muted fw-bold">Player Payroll:</span>
+                    
+                    <div class="d-flex justify-content-between mb-2 pb-2 border-bottom align-items-center">
+                        <span class="text-muted fw-bold">
+                            Player Payroll:
+                            <button type="button" class="btn btn-sm btn-outline-secondary ms-2 py-0 px-2 fw-bold" data-bs-toggle="modal" data-bs-target="#payrollModal" style="font-size: 0.75rem;">View</button>
+                        </span>
                         <span class="ledger-val text-danger">-${{ "{:,.0f}".format(finances.cost_players) }}</span>
                     </div>
+                    
+                    <!-- PENDING BIDS ROW -->
+                    <div class="d-flex justify-content-between mb-3 pb-2 border-bottom align-items-center">
+                        <span class="text-muted fw-bold">
+                            Pending Bids:
+                            <button type="button" class="btn btn-sm btn-outline-secondary ms-2 py-0 px-2 fw-bold" data-bs-toggle="modal" data-bs-target="#offersModal" style="font-size: 0.75rem;">View</button>
+                        </span>
+                        <span class="ledger-val text-warning">-${{ "{:,.0f}".format(pending_bids_total) }}</span>
+                    </div>
+                    
+                    <!-- EFFECTIVE CAP -->
                     <div class="d-flex justify-content-between align-items-center mt-auto bg-light p-3 rounded border">
-                        <h5 class="mb-0 fw-bold text-uppercase">Available</h5>
-                        <h4 class="mb-0 fw-bold ledger-val">${{ "{:,.0f}".format(available_budget) }}</h4>
+                        <h5 class="mb-0 fw-bold text-uppercase">Effective Cap</h5>
+                        <h4 class="mb-0 fw-bold ledger-val">${{ "{:,.0f}".format(effective_budget) }}</h4>
                     </div>
                 </div>
             </div>
@@ -157,7 +188,7 @@
             </div>
         </div>
         
-    </div>
+    </div> <!-- END TOP ROW -->
 
     <!-- MIDDLE ROW: Team Composition -->
     <div class="row g-4 mb-4">
@@ -207,6 +238,7 @@
         </div>
 
     </div>
+    
     <!-- BOTTOM ROW: Scatter Plot & Donut Chart -->
     <div class="row g-4 mb-4">
         
@@ -239,9 +271,191 @@
         </div>
 
     </div>
-    <!-- ROSTER CARDS PLACEHOLDER -->
 
-</div>
+    <!-- FULL ORGANIZATION ROSTER TABLE -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card shadow-sm border-0">
+                <div class="card-header bg-dark text-white fw-bold d-flex justify-content-between align-items-center py-2">
+                    <span><i class="fas fa-users me-2"></i> Organizational Roster & Contracts</span>
+                    <span class="badge bg-light text-dark">{{ roster|length }} Active Players</span>
+                </div>
+                <div class="card-body p-0 table-responsive" style="max-height: 500px; overflow-y: auto;">
+                    <table class="table table-hover align-middle mb-0 text-center" id="orgRosterTable">
+                        <thead class="table-light sticky-top shadow-sm">
+                            <tr>
+                                <th class="text-start ps-3">Player Name</th>
+                                <th class="sortable-header" onclick="sortRosterTable(1, 'string')">Level ↕</th>
+                                <th class="sortable-header" onclick="sortRosterTable(2, 'string')">Pos ↕</th>
+                                <th class="sortable-header" onclick="sortRosterTable(3, 'number')">Age ↕</th>
+                                <th class="sortable-header" onclick="sortRosterTable(4, 'number')">OVR ↕</th>
+                                <th class="sortable-header" onclick="sortRosterTable(5, 'number')">Years Left ↕</th>
+                                <th class="sortable-header" onclick="sortRosterTable(6, 'number')">Yearly Salary ↕</th>
+                                <th class="pe-3">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for p in roster %}
+                            <tr>
+                                <td class="text-start ps-3 fw-bold">
+                                    <a href="{{ url_for('main.player_profile', player_id=p.id) }}" class="text-decoration-none" target="_blank">{{ p.name }}</a>
+                                </td>
+                                
+                                <!-- LEVEL BADGE COLUMN -->
+                                <td data-val="{{ p.league }}">
+                                    <span class="badge {% if p.league == 'MLB' %}bg-danger{% else %}bg-primary{% endif %}">{{ p.league }}</span>
+                                </td>
+                                
+                                <td data-val="{{ p.position }}"><span class="badge bg-secondary">{{ p.position }}</span></td>
+                                <td data-val="{{ p.age }}">{{ p.age }}</td>
+                                <td class="fw-bold" data-val="{{ p.ovr }}" style="color: {{ get_main_text(p.ovr) }}; background-color: {{ get_main_bg(p.ovr) }}; border-radius: 4px; padding: 2px;">{{ p.ovr }}</td>
+                                <td class="fw-bold" data-val="{{ p.years_left }}">{{ p.years_left }} Yrs</td>
+                                <td class="fw-bold text-success" data-val="{{ p.salary }}">${{ "{:,.0f}".format(p.salary) }}</td>
+                                <td class="pe-3">
+                                    <!-- Release Modal Trigger -->
+                                    <button type="button" class="btn btn-sm btn-outline-danger fw-bold" data-bs-toggle="modal" data-bs-target="#releaseModal{{ p.id }}">
+                                        Release
+                                    </button>
+
+                                    <!-- Release Confirmation Modal -->
+                                    <div class="modal fade" id="releaseModal{{ p.id }}" tabindex="-1" aria-hidden="true">
+                                      <div class="modal-dialog">
+                                        <div class="modal-content text-start">
+                                          <div class="modal-header bg-danger text-white">
+                                            <h5 class="modal-title fw-bold">Release {{ p.name }}?</h5>
+                                            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                                          </div>
+                                          <div class="modal-body">
+                                              <p>Are you absolutely sure you want to release <strong>{{ p.name }}</strong> into Free Agency?</p>
+                                              
+                                              {% if p.years_left == 1 %}
+                                              <div class="alert alert-warning border-warning fw-bold text-dark">
+                                                  ⚠️ 1 Year Remaining: This contract will become Dead Money. You will remain on the hook for the full <span class="text-danger">${{ "{:,.0f}".format(p.salary) }}</span> this season.
+                                              </div>
+                                              {% else %}
+                                              <div class="alert alert-info border-info fw-bold text-dark">
+                                                  ℹ️ 2+ Years Remaining: This contract will trigger a Buyout. Your penalty will be halved to <span class="text-danger">${{ "{:,.0f}".format(p.salary / 2) }} / yr</span> for the remainder of the deal.
+                                              </div>
+                                              {% endif %}
+                                          </div>
+                                          <div class="modal-footer">
+                                            <button type="button" class="btn btn-secondary fw-bold" data-bs-dismiss="modal">Cancel</button>
+                                            <form action="{{ url_for('main.release_player', player_id=p.id) }}" method="POST" class="m-0">
+                                                <input type="hidden" name="team_id" value="{{ team_id }}">
+                                                <button type="submit" class="btn btn-danger fw-bold">Confirm Release</button>
+                                            </form>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- PENDING OFFERS MODAL (Placed safely at the bottom of the container) -->
+    <div class="modal fade" id="offersModal" tabindex="-1" aria-labelledby="offersModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-dark text-white">
+            <h5 class="modal-title fw-bold" id="offersModalLabel"><i class="fas fa-file-signature me-2"></i> Active Free Agent Offers</h5>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-0">
+            {% if pending_bids %}
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0 text-center text-dark">
+                    <thead class="table-light">
+                        <tr>
+                            <th class="text-start ps-3">Player</th>
+                            <th>Pos</th>
+                            <th>Duration</th>
+                            <th>Yearly Salary</th>
+                            <th class="pe-3">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for bid in pending_bids %}
+                        <tr>
+                            <td class="text-start ps-3 fw-bold">
+                                <a href="{{ url_for('main.player_profile', player_id=bid.id) }}" class="text-decoration-none" target="_blank">{{ bid.name }}</a>
+                            </td>
+                            <td><span class="badge bg-secondary">{{ bid.position }}</span></td>
+                            <td class="fw-bold">{{ bid.years }} Yrs</td>
+                            <td class="fw-bold text-success">${{ "{:,.0f}".format(bid.salary) }}</td>
+                            <td class="pe-3">
+                                <div class="d-flex justify-content-center gap-2">
+                                    <a href="{{ url_for('main.free_agency', team_id=team_id) }}" class="btn btn-sm btn-primary fw-bold">Change</a>
+                                    <form action="{{ url_for('main.cancel_offer', bid_id=bid.bid_id) }}" method="POST" class="m-0">
+                                        <input type="hidden" name="team_id" value="{{ team_id }}">
+                                        <button type="submit" class="btn btn-sm btn-danger fw-bold">Cancel</button>
+                                    </form>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="p-4 text-center text-muted">
+                <h6 class="fw-bold mb-1">No Active Offers</h6>
+                <p class="small mb-2">You currently have no pending bids on the market.</p>
+            </div>
+            {% endif %}
+            </div>
+        </div>
+        </div>
+    </div>
+
+  <!-- PAYROLL BREAKDOWN MODAL -->
+    <div class="modal fade" id="payrollModal" tabindex="-1" aria-labelledby="payrollModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-dark text-white">
+            <h5 class="modal-title fw-bold" id="payrollModalLabel"><i class="fas fa-file-invoice-dollar me-2"></i> Payroll Breakdown</h5>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-0">
+                <table class="table table-hover align-middle mb-0 text-dark">
+                    <thead class="table-light">
+                        <tr>
+                            <th class="text-start ps-3">Category</th>
+                            <th class="text-end pe-3">Amount</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td class="text-start ps-3 fw-bold">Active Roster</td>
+                            <td class="text-end pe-3 text-danger fw-bold">-${{ "{:,.0f}".format(payroll_breakdown['Active']) }}</td>
+                        </tr>
+                        <tr>
+                            <td class="text-start ps-3 fw-bold">Buyouts <span class="text-muted fw-normal small">(2+ Yrs Left)</span></td>
+                            <td class="text-end pe-3 text-danger fw-bold">-${{ "{:,.0f}".format(payroll_breakdown['Buyout']) }}</td>
+                        </tr>
+                        <tr>
+                            <td class="text-start ps-3 fw-bold">Dead Money <span class="text-muted fw-normal small">(1 Yr Left)</span></td>
+                            <td class="text-end pe-3 text-danger fw-bold">-${{ "{:,.0f}".format(payroll_breakdown['Dead Money']) }}</td>
+                        </tr>
+                    </tbody>
+                    <tfoot class="table-light border-top">
+                        <tr>
+                            <td class="text-end fw-bold">Total Payroll:</td>
+                            <td class="text-end pe-3 fw-bold text-danger">-${{ "{:,.0f}".format(finances.cost_players) }}</td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>
+        </div>
+    </div>  
+
+</div> <!-- END CONTAINER-FLUID -->
 
 <!-- CHART.JS SCRIPT AND CONFIGURATION -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -252,7 +466,8 @@
         const financeBalances = {{ finance_history.balances | tojson }};
         
         const contractLabels = {{ contract_labels | tojson }};
-        const contractValues = {{ contract_values | tojson }};
+        const contractActiveValues = {{ contract_active_values | tojson }};
+        const contractDeadValues = {{ contract_dead_values | tojson }};
         
         const hitSpend = -{{ spending_split.hitters }}; 
         const pitSpend = {{ spending_split.pitchers }};
@@ -297,19 +512,39 @@
             type: 'bar',
             data: {
                 labels: contractLabels,
-                datasets: [{
-                    label: 'Payroll Expiring',
-                    data: contractValues,
-                    backgroundColor: '{{ team_color_1 }}',
-                    borderRadius: 4 
-                }]
+                datasets: [
+                    {
+                        label: 'Active Payroll',
+                        data: contractActiveValues,
+                        backgroundColor: '{{ team_color_1 }}',
+                        borderRadius: 4 
+                    },
+                    {
+                        label: 'Dead Cap & Buyouts',
+                        data: contractDeadValues,
+                        backgroundColor: '#dc3545', // Danger Red for dead money
+                        borderRadius: 4 
+                    }
+                ]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false, 
-                plugins: { legend: { display: false } },
+                plugins: { 
+                    legend: { display: true, position: 'bottom', labels: { boxWidth: 12, font: {size: 10} } },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                let val = context.raw;
+                                return context.dataset.label + ': $' + (val / 1000000).toFixed(2) + 'M';
+                            }
+                        }
+                    }
+                },
                 scales: {
+                    x: { stacked: true },
                     y: { 
+                        stacked: true, // This puts the red on top of the team color!
                         beginAtZero: true,
                         ticks: {
                             callback: function(value) { return '$' + (value / 1000000) + 'M'; }
@@ -399,10 +634,17 @@
         new Chart(ctxDonut, {
             type: 'doughnut',
             data: {
-                labels: ['Catchers', 'Infielders', 'Outfielders', 'Pitchers'],
+                labels: ['Catchers', 'Infielders', 'Outfielders', 'Pitchers', 'Dead Cap & Buyouts'],
                 datasets: [{
-                    data: [donutDataRaw['Catchers'], donutDataRaw['Infielders'], donutDataRaw['Outfielders'], donutDataRaw['Pitchers']],
-                    backgroundColor: ['#424242', '#bdbdbd', '#757575', '{{ team_color_1 }}'],
+                    data: [
+                        donutDataRaw['Catchers'], 
+                        donutDataRaw['Infielders'], 
+                        donutDataRaw['Outfielders'], 
+                        donutDataRaw['Pitchers'],
+                        donutDataRaw['Dead Cap']
+                    ],
+                    // Notice the 5th color (#dc3545) is the Bootstrap red!
+                    backgroundColor: ['#424242', '#bdbdbd', '#757575', '{{ team_color_1 }}', '#dc3545'],
                     borderWidth: 2,
                     borderColor: '#ffffff'
                 }]
@@ -425,6 +667,35 @@
                 }
             }
         });
+        // --- 7. TABLE SORTING LOGIC ---
+        let sortDirections = {};
+
+    window.sortRosterTable = function(colIndex, type) {
+        const table = document.getElementById('orgRosterTable');
+        const tbody = table.tBodies[0];
+        const rows = Array.from(tbody.querySelectorAll("tr"));
+        
+        // Toggle sort direction (default to descending for numbers, ascending for strings)
+        let dir = sortDirections[colIndex] || (type === 'number' ? 'desc' : 'asc');
+        sortDirections[colIndex] = dir === 'asc' ? 'desc' : 'asc';
+        
+        rows.sort((a, b) => {
+            // Read from the hidden data-val attribute we added to the HTML
+            let aVal = a.cells[colIndex].getAttribute('data-val');
+            let bVal = b.cells[colIndex].getAttribute('data-val');
+            
+            if (type === 'number') {
+                aVal = parseFloat(aVal) || 0;
+                bVal = parseFloat(bVal) || 0;
+                return dir === 'asc' ? aVal - bVal : bVal - aVal;
+            } else {
+                return dir === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+            }
+            });
+        
+            // Re-append the sorted rows back into the table visually
+            rows.forEach(row => tbody.appendChild(row));
+        };
     });
 </script>
 {% endblock %}

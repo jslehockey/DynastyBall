@@ -5,6 +5,7 @@
 # advanced sub-stats, career progression, and contract logic.
 # ==========================================
 import random
+from extensions import db
 # NOTE: If type checking requires the Bid class, uncomment the line below:
 # from model_bid import Bid
 
@@ -463,3 +464,139 @@ class Player:
         self.next_decision_time = None
         
         return f"{self.name} has signed a {self.contract_length}-year, ${self.contract_salary:,.0f}/yr deal with Team {winning_bid.team_id}!"
+
+# --- DATABASE MODELS ---
+
+class PlayerBase(db.Model):
+    __tablename__ = 'players_base'
+    player_id = db.Column(db.Integer, primary_key=True)
+    first_name = db.Column(db.String(50), nullable=False)
+    last_name = db.Column(db.String(50), nullable=False)
+    peak_age = db.Column(db.Integer, nullable=False)
+    degrade_age = db.Column(db.Integer, nullable=False)
+    archetype = db.Column(db.String(50))
+
+class PlayerRating(db.Model):
+    __tablename__ = 'player_ratings'
+    rating_id = db.Column(db.Integer, primary_key=True)
+    player_id = db.Column(db.Integer, db.ForeignKey('players_base.player_id'), nullable=False)
+    team_id = db.Column(db.Integer, db.ForeignKey('teams.team_id'), nullable=True)
+    season = db.Column(db.Integer, nullable=False)
+    league_level = db.Column(db.Integer, nullable=False)
+    age = db.Column(db.Integer, nullable=False)
+    position = db.Column(db.String(10))
+    role = db.Column(db.String(20))
+    trait_1 = db.Column(db.String(50))
+    trait_2 = db.Column(db.String(50))
+    trait_3 = db.Column(db.String(50))
+    trait_count = db.Column(db.Integer, default=0)
+    recent_form = db.Column(db.Integer, default=50)
+    psyche_mod = db.Column(db.Integer, default=0)
+    assigned_pos = db.Column(db.String(10))
+    assigned_role = db.Column(db.String(20))
+    batting_order = db.Column(db.Integer)
+    
+    # Hitting
+    con_timing = db.Column(db.Integer, nullable=False, default=1)
+    con_barrel = db.Column(db.Integer, nullable=False, default=1)
+    pow_str = db.Column(db.Integer, nullable=False, default=1)
+    pow_batspd = db.Column(db.Integer, nullable=False, default=1)
+    pow_elev = db.Column(db.Integer, nullable=False, default=1)
+    disc_eye = db.Column(db.Integer, nullable=False, default=1)
+    disc_restr = db.Column(db.Integer, nullable=False, default=1)
+    
+    # Speed & Defense
+    spd_sprint = db.Column(db.Integer, nullable=False, default=1)
+    spd_inst = db.Column(db.Integer, nullable=False, default=1)
+    def_range = db.Column(db.Integer, nullable=False, default=1)
+    def_react = db.Column(db.Integer, nullable=False, default=1)
+    def_glove = db.Column(db.Integer, nullable=False, default=1)
+    def_armstr = db.Column(db.Integer, nullable=False, default=1)
+    def_armacc = db.Column(db.Integer, nullable=False, default=1)
+    
+    # Pitching
+    stam_max = db.Column(db.Integer, nullable=False, default=1)
+    stam_cur = db.Column(db.Integer, nullable=False, default=1)
+    pit_velo = db.Column(db.Integer, nullable=False, default=1)
+    pit_vel_armspd = db.Column(db.Integer, nullable=False, default=1)
+    pit_vel_decept = db.Column(db.Integer, nullable=False, default=1)
+    pit_ctrl = db.Column(db.Integer, nullable=False, default=1)
+    pit_ctrl_acc = db.Column(db.Integer, nullable=False, default=1)
+    pit_ctrl_cmd = db.Column(db.Integer, nullable=False, default=1)
+    pit_mov = db.Column(db.Integer, nullable=False, default=1)
+    pit_mov_spin = db.Column(db.Integer, nullable=False, default=1)
+    pit_mov_bite = db.Column(db.Integer, nullable=False, default=1)
+
+class StatHitting(db.Model):
+    __tablename__ = 'stats_hitting'
+    stat_id = db.Column(db.Integer, primary_key=True)
+    player_id = db.Column(db.Integer, db.ForeignKey('players_base.player_id'), nullable=False)
+    season = db.Column(db.Integer, nullable=False)
+    competition = db.Column(db.String(50))
+    g = db.Column(db.Integer, default=0)
+    pa = db.Column(db.Integer, default=0)
+    ab = db.Column(db.Integer, default=0)
+    r = db.Column(db.Integer, default=0)
+    h = db.Column(db.Integer, default=0)
+    _1b = db.Column('1b', db.Integer, default=0) 
+    _2b = db.Column('2b', db.Integer, default=0)
+    _3b = db.Column('3b', db.Integer, default=0)
+    hr = db.Column(db.Integer, default=0)
+    rbi = db.Column(db.Integer, default=0)
+    bb = db.Column(db.Integer, default=0)
+    hbp = db.Column(db.Integer, default=0)
+    k = db.Column(db.Integer, default=0)
+    sb = db.Column(db.Integer, default=0)
+    cs = db.Column(db.Integer, default=0)
+    avg = db.Column(db.Float, default=0.0)
+    obp = db.Column(db.Float, default=0.0)
+    slg = db.Column(db.Float, default=0.0)
+    ops = db.Column(db.Float, default=0.0)
+
+class StatPitching(db.Model):
+    __tablename__ = 'stats_pitching'
+    stat_id = db.Column(db.Integer, primary_key=True)
+    player_id = db.Column(db.Integer, db.ForeignKey('players_base.player_id'), nullable=False)
+    season = db.Column(db.Integer, nullable=False)
+    competition = db.Column(db.String(50))
+    g = db.Column(db.Integer, default=0)
+    w = db.Column(db.Integer, default=0)
+    l = db.Column(db.Integer, default=0)
+    sv = db.Column(db.Integer, default=0)
+    hld = db.Column(db.Integer, default=0)
+    bs = db.Column(db.Integer, default=0)
+    ip = db.Column(db.Float, default=0.0)
+    h = db.Column(db.Integer, default=0)
+    r = db.Column(db.Integer, default=0)
+    er = db.Column(db.Integer, default=0)
+    hr = db.Column(db.Integer, default=0)
+    bb = db.Column(db.Integer, default=0)
+    hbp = db.Column(db.Integer, default=0)
+    k = db.Column(db.Integer, default=0)
+    pitches = db.Column(db.Integer, default=0)
+    cg = db.Column(db.Integer, default=0)
+    sho = db.Column(db.Integer, default=0)
+    era = db.Column(db.Float, default=0.0)
+    whip = db.Column(db.Float, default=0.0)
+    fip = db.Column(db.Float, default=0.0)
+
+class StatFielding(db.Model):
+    __tablename__ = 'stats_fielding'
+    stat_id = db.Column(db.Integer, primary_key=True)
+    player_id = db.Column(db.Integer, db.ForeignKey('players_base.player_id'), nullable=False)
+    season = db.Column(db.Integer, nullable=False)
+    competition = db.Column(db.String(50))
+    g = db.Column(db.Integer, default=0)
+    po = db.Column(db.Integer, default=0)
+    a = db.Column(db.Integer, default=0)
+    e = db.Column(db.Integer, default=0)
+    tc = db.Column(db.Integer, default=0)
+    fpct = db.Column(db.Float, default=0.0)
+
+class Award(db.Model):
+    __tablename__ = 'awards'
+    award_id = db.Column(db.Integer, primary_key=True)
+    player_id = db.Column(db.Integer, db.ForeignKey('players_base.player_id'), nullable=False)
+    season = db.Column(db.Integer, nullable=False)
+    competition = db.Column(db.String(50))
+    title = db.Column(db.String(100), nullable=False)

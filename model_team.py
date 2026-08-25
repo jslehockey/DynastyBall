@@ -5,6 +5,7 @@
 # and game-level team states for the engine loop.
 # ==========================================
 from model_stadium import Stadium
+from extensions import db
 # NOTE: Depending on your engine setup, you may also need:
 # from model_player import Player 
 
@@ -56,3 +57,33 @@ class Team:
         batter = self.lineup[self.batter_index]
         self.batter_index = (self.batter_index + 1) % len(self.lineup)
         return batter
+
+# --- DATABASE MODELS ---
+
+class TeamDB(db.Model):
+    __tablename__ = 'teams'
+    team_id = db.Column(db.Integer, primary_key=True)
+    world_id = db.Column(db.Integer, db.ForeignKey('worlds.world_id'), nullable=False)
+    location = db.Column(db.String(100), nullable=False)
+    nickname = db.Column(db.String(100), nullable=False)
+    manager = db.Column(db.String(100))
+    status = db.Column(db.String(20))
+    user_email = db.Column(db.String(120), unique=True, nullable=True)
+    user_pw = db.Column(db.String(255))
+    sub_status = db.Column(db.Integer, default=0)
+    color_primary = db.Column(db.String(7))
+    color_secondary = db.Column(db.String(7))
+    prestige = db.Column(db.Integer, default=0)
+
+class TeamFinancials(db.Model):
+    __tablename__ = 'team_financials'
+    financial_id = db.Column(db.Integer, primary_key=True)
+    team_id = db.Column(db.Integer, db.ForeignKey('teams.team_id'), nullable=False)
+    season = db.Column(db.Integer, nullable=False)
+    balance = db.Column(db.Integer, default=0)
+    players_on_contract = db.Column(db.Integer, default=0)
+    cost_players = db.Column(db.Integer, default=0)
+    income_fa_cup = db.Column(db.Integer, default=0)
+    income_media = db.Column(db.Integer, default=0)
+    income_adwatch = db.Column(db.Integer, default=0)
+    income_attendance = db.Column(db.Integer, default=0)

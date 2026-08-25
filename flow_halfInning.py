@@ -96,8 +96,7 @@ class HalfInning:
                 print(f"  *** {msg} ***")
                 self.log_event("Batting Milestone", batter.name, msg)
 
-    def log_event(self, event_type, player_name, description):
-        """Formats and appends the event for the Google Sheets payload."""
+    def log_event(self, event_type, player_name, description, pitch_log=""):
         half_str = "Top" if self.is_top else "Bottom"
         
         if event_type in ["Pitching Milestone", "Defensive Milestone"]:
@@ -105,7 +104,28 @@ class HalfInning:
         else:
             team_name = self.batting_team.name
             
-        self.game_events.append([self.inning_num, half_str, team_name, event_type, player_name, description])
+        # Capture the live score
+        away_live = self.away_score + (self.runs if self.is_top else 0)
+        home_live = self.home_score + (self.runs if not self.is_top else 0)
+
+        # Capture base runners by name so the UI knows who to draw on the diamond
+        r1 = self.bases[1].name if self.bases[1] else None
+        r2 = self.bases[2].name if self.bases[2] else None
+        r3 = self.bases[3].name if self.bases[3] else None
+            
+        self.game_events.append({
+            "inning": self.inning_num,
+            "half": half_str,
+            "team": team_name,
+            "type": event_type,
+            "player": player_name,
+            "desc": description,
+            "pitch_log": pitch_log,
+            "outs": self.outs,
+            "away_score": away_live,
+            "home_score": home_live,
+            "r1": r1, "r2": r2, "r3": r3
+        })
 
     # ==========================================
     # CORE ENGINE LOOP
@@ -177,12 +197,14 @@ class HalfInning:
             outcome = sim.simulate_at_bat(defense=self.defense)
             event = outcome.get("event")
 
+            # NEW: Variable to hold the play summary for the UI Database
+            play_description = ""
+
             # Pitch Count Tracker
             if "pitches" in outcome: ab_pitches = outcome["pitches"]
             else:
                 if event == "Strikeout": ab_pitches = random.randint(3, 7)
-                elif event == "Walk": ab_pitches = random.randint(4, 8)
-                elif event == "Hit By Pitch": ab_pitches = random.randint(1, 4)
+                elif event in ["Walk", "Hit By Pitch"]: ab_pitches = random.randint(4, 8)
                 else: ab_pitches = random.randint(1, 6)
                 
             t_pit["Pitches"] += ab_pitches
@@ -197,6 +219,8 @@ class HalfInning:
             
             # --- 4. ENGINE OUTCOME PARSER ---
             if event == "Inning Ending Steal":
+                # NEW: Catch the steal in the play-by-play log
+                self.log_event("Caught Stealing", batter.name, "Runner caught stealing to end the inning.")
                 self.batting_team.batter_index -= 1
                 if self.batting_team.batter_index < 0:
                     self.batting_team.batter_index = len(self.batting_team.lineup) - 1
@@ -209,40 +233,21 @@ class HalfInning:
                 t_bat["AB"] += 1; p_bat["AB"] += 1
                 t_bat["K"] += 1; p_bat["K"] += 1
                 t_pit["K"] += 1; p_pit["K"] += 1
+                play_description = "Strikeout." # <--- SET VAR
                 print(f"  Result: Strikeout.")
-                
-                milestone = self.check_in_game_milestone(self.pitcher, "K", p_pit["K"])
-                if milestone:
-                    for m in milestone:
-                        print(f"  {m}")
-                        self.log_event("Pitching Milestone", self.pitcher.name, m)
 
-                if p_pit["K"] == 10:
-                    msg = "Reaches double-digit strikeouts (10 K's) in today's game!"
-                    print(f"  *** {msg} ***")
-                    self.log_event("Pitching Milestone", self.pitcher.name, msg)
-                elif p_pit["K"] == 15:
-                    msg = "Absolutely dominant! Records his 15th strikeout of the game!"
-                    print(f"  *** {msg} ***")
-                    self.log_event("Pitching Milestone", self.pitcher.name, msg)
-                elif p_pit["K"] == 20:
-                    msg = "INSANITY! This is the 20th strikeout of the game!"
-                    print(f"  *** {msg} ***")
-                    self.log_event("Pitching Milestone", self.pitcher.name, msg)
-                
-                self.record_fielding_stat("C", "PO")
-                self.record_out()
-                
             elif event in ["Walk", "Hit By Pitch"]:
                 key = "BB" if event == "Walk" else "HBP"
                 t_bat[key] += 1; p_bat[key] += 1
                 t_pit[key] += 1; p_pit[key] += 1
+                play_description = f"{event}." # <--- SET VAR
                 print(f"  Result: {event}.")
                 self.advance_all_forced(batter)
                 
             elif event == "Ball in Play":
                 t_bat["AB"] += 1; p_bat["AB"] += 1
-                print(f"  Result: {outcome.get('description', 'Ball in play.')}")
+                play_description = outcome.get("description", "Ball in play.") # <--- SET VAR
+                print(f"  Result: {play_description}")
                 
                 target = outcome.get("target")
                 
@@ -374,15 +379,19 @@ class HalfInning:
                             print(f"  {m}")
                             self.log_event("Batting Milestone", batter.name, m)
                 
-                hit_type = outcome.get("target", event)
-                location = outcome.get("location", "the field")
-                rbi_text = f", driving in {rbi_awarded} run(s)!" if rbi_awarded > 0 else " (Runs scored on error!)"
-                
-                if hit_type == "HR": desc = f"{batter.name} hits a Home Run to {location}{rbi_text}"
-                else: desc = f"{batter.name} hits a {hit_type} to {location}{rbi_text}"
-                
-                self.log_event("Scoring Play", batter.name, desc)
+                # Append scoring info to the main description instead of making a duplicate log
+                play_description += f" ({runs_scored_on_play} Run{'s' if runs_scored_on_play > 1 else ''} Scored)"
             
+            # ==========================================
+            # NEW: THE MASTER AT-BAT LOGGER
+            # ==========================================
+            # This fires right before the Walk-Off check, ensuring self.bases and self.outs 
+            # are perfectly updated for the UI diamond!
+            if play_description:
+                # Join the list of pitches with a pipe or HTML break
+                pitch_sequence = "<br>".join(outcome.get("log", [])) if outcome else ""
+                self.log_event("At-Bat", batter.name, play_description, pitch_sequence)
+
             # Walk-Off Check
             if not self.is_top and self.inning_num >= 9:
                 if (self.home_score + self.runs) > self.away_score:

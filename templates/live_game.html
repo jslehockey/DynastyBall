@@ -1,0 +1,385 @@
+{% extends "base.html" %}
+
+{% block content %}
+<style>
+    /* Baseball Diamond CSS */
+    .diamond-wrapper {
+        position: relative;
+        width: 280px;
+        height: 280px;
+        margin: 0 auto;
+        background-color: #2b7a2b; 
+        clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
+        border: 2px solid #fff;
+    }
+    .base {
+        position: absolute;
+        width: 22px;
+        height: 22px;
+        background-color: white;
+        transform: translate(-50%, -50%) rotate(45deg);
+        border: 2px solid #ccc;
+        transition: background-color 0.3s, transform 0.3s;
+    }
+    #base2 { top: 20%; left: 50%; }
+    #base1 { top: 50%; left: 80%; }
+    #base3 { top: 50%; left: 20%; }
+    #baseH { 
+        top: 80%; left: 50%; 
+        clip-path: polygon(0 0, 100% 0, 50% 100%); 
+        transform: translate(-50%, -50%);
+        height: 25px;
+    }
+    .occupied { background-color: #dc3545 !important; border-color: #721c24; transform: translate(-50%, -50%) rotate(45deg) scale(1.2); }
+    
+    /* The Animated Baseball */
+    #baseball {
+        position: absolute;
+        width: 10px;
+        height: 10px;
+        background-color: white;
+        border-radius: 50%;
+        box-shadow: 0 0 5px rgba(0,0,0,0.5);
+        top: 80%; left: 50%; 
+        transform: translate(-50%, -50%);
+        opacity: 0;
+        transition: top 0.8s cubic-bezier(0.25, 1, 0.5, 1), left 0.8s cubic-bezier(0.25, 1, 0.5, 1), opacity 0.2s;
+        z-index: 10;
+    }
+
+    /* Out Indicators */
+    .out-dot {
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        border: 2px solid #6c757d;
+        background-color: transparent;
+        display: inline-block;
+        transition: all 0.3s;
+    }
+    .out-active {
+        background-color: #dc3545;
+        border-color: #dc3545;
+        box-shadow: 0 0 8px rgba(220, 53, 69, 0.8);
+    }
+
+    /* Log Boxes */
+    .log-container { max-height: 250px; overflow-y: auto; }
+    .pitch-sequence-box {
+        background-color: #1e1e1e;
+        color: #00ff00;
+        font-family: monospace;
+        font-size: 0.9rem;
+        min-height: 100px;
+    }
+    
+    /* Header Transitions */
+    #action-header { transition: background-color 0.4s ease; }
+</style>
+
+<div class="container mt-4">
+    <!-- SCOREBOARD -->
+    <div class="row mb-3">
+        <div class="col-12">
+            <div class="card shadow-sm border-0">
+                <div class="card-body bg-dark text-white rounded d-flex justify-content-between align-items-center p-3">
+                    <!-- Away Team -->
+                    <div class="text-center" style="width: 25%;">
+                        <h6 class="text-muted mb-1 text-uppercase">{{ game.away_loc }}</h6>
+                        <h3 class="fw-bold mb-0" style="color: {{ game.away_color }};">{{ game.away_name }}</h3>
+                        <h1 class="display-4 fw-bold mb-0" id="sb-away-score">0</h1>
+                    </div>
+                    
+                    <!-- Game State (Inning/Outs/Baserunners) -->
+                    <div class="text-center" style="width: 50%;">
+                        <h4 class="mb-2 fw-bold text-warning" id="sb-inning">Top 1</h4>
+                        <div class="d-flex justify-content-center gap-2 mb-1">
+                            <div class="out-dot" id="out1"></div>
+                            <div class="out-dot" id="out2"></div>
+                            <div class="out-dot" id="out3"></div>
+                        </div>
+                        <p class="text-muted fw-bold mb-2 small">OUTS</p>
+                        
+                        <!-- NEW: Dedicated Baserunner Tracker -->
+                        <div class="d-flex justify-content-center gap-3 small fw-bold">
+                            <span class="text-light opacity-50" id="text-1b">1B: Empty</span>
+                            <span class="text-light opacity-50" id="text-2b">2B: Empty</span>
+                            <span class="text-light opacity-50" id="text-3b">3B: Empty</span>
+                        </div>
+                    </div>
+
+                    <!-- Home Team -->
+                    <div class="text-center" style="width: 25%;">
+                        <h6 class="text-muted mb-1 text-uppercase">{{ game.home_loc }}</h6>
+                        <h3 class="fw-bold mb-0" style="color: {{ game.home_color }};">{{ game.home_name }}</h3>
+                        <h1 class="display-4 fw-bold mb-0" id="sb-home-score">0</h1>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MAIN GAME VIEW -->
+    <div class="row g-3 mb-4">
+        <!-- Visual Diamond -->
+        <div class="col-md-5">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-header bg-light fw-bold text-center">Live Field</div>
+                <div class="card-body d-flex flex-column justify-content-center">
+                    <div class="diamond-wrapper mb-3">
+                        <div class="base" id="base2"></div>
+                        <div class="base" id="base1"></div>
+                        <div class="base" id="base3"></div>
+                        <div class="base" id="baseH"></div>
+                        <div id="baseball"></div>
+                    </div>
+                    
+                    <div class="text-center small fw-bold text-muted">
+                        <div id="name-2b" style="min-height: 20px;"></div>
+                        <div class="d-flex justify-content-between px-3">
+                            <span id="name-3b" style="width: 45%; text-align: right;"></span>
+                            <span id="name-1b" style="width: 45%; text-align: left;"></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Current Play & Pitches -->
+        <div class="col-md-7">
+            <div class="card shadow-sm border-0 h-100">
+                <!-- Action Header (Will flash yellow for milestones) -->
+                <div class="card-header bg-light d-flex justify-content-between align-items-center" id="action-header">
+                    <span class="fw-bold text-primary" id="current-batter-header">At-Bat</span>
+                    <div>
+                        <button id="btn-next" class="btn btn-primary btn-sm fw-bold">Next Play <i class="fas fa-step-forward"></i></button>
+                        <button id="btn-auto" class="btn btn-outline-success btn-sm fw-bold ms-2">Auto <i class="fas fa-play"></i></button>
+                    </div>
+                </div>
+                <div class="card-body p-0 d-flex flex-column">
+                    <!-- Pitch Log Box -->
+                    <div class="p-3 pitch-sequence-box border-bottom" id="pitch-log">
+                        <span class="text-muted">Awaiting pitch...</span>
+                    </div>
+                    
+                    <!-- Current Inning Action -->
+                    <div class="p-3 bg-white flex-grow-1 log-container" id="current-inning-log">
+                        <div class="text-center text-muted mt-2" id="starting-msg">Waiting for first pitch...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- GAME HISTORY -->
+    <div class="row">
+        <div class="col-12">
+            <div class="card shadow-sm border-0">
+                <div class="card-header bg-secondary text-white fw-bold">Game History Broadcast</div>
+                <div class="card-body bg-light log-container" style="max-height: 400px;" id="full-game-log">
+                    <!-- Previous innings populate here automatically -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const gameId = {{ game.game_id }};
+    let currentEventIndex = 1;
+    let autoPlayInterval = null;
+    let currentInningTracker = ""; 
+
+    function fetchNextPlay() {
+        fetch(`/api/game/${gameId}/play/${currentEventIndex}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === "end") {
+                    stopAutoPlay();
+                    appendCurrentPlay("Game Over", "The ballgame has concluded.", "bg-dark text-white");
+                    return;
+                }
+
+                // 1. Manage Inning Transitions
+                const incomingInning = `${data.half} ${data.inning}`;
+                if (currentInningTracker !== "" && currentInningTracker !== incomingInning) {
+                    archiveInningLog(currentInningTracker);
+                    resetField();
+                }
+                currentInningTracker = incomingInning;
+
+                // 2. Scoreboard & Outs
+                document.getElementById('sb-away-score').innerText = data.away_score;
+                document.getElementById('sb-home-score').innerText = data.home_score;
+                document.getElementById('sb-inning').innerText = incomingInning;
+
+                document.getElementById('out1').className = data.outs >= 1 ? "out-dot out-active" : "out-dot";
+                document.getElementById('out2').className = data.outs >= 2 ? "out-dot out-active" : "out-dot";
+                document.getElementById('out3').className = data.outs >= 3 ? "out-dot out-active" : "out-dot";
+
+                // =====================================
+                // 3. THE MILESTONE BANNER TRAP
+                // =====================================
+                const headerBox = document.getElementById('action-header');
+                const headerText = document.getElementById('current-batter-header');
+                
+                if (data.type.includes("Milestone") || data.type.includes("Debut")) {
+                    // Turn it into a glowing Banner!
+                    headerBox.className = "card-header bg-warning d-flex justify-content-between align-items-center";
+                    headerText.className = "fw-bold text-dark";
+                    headerText.innerHTML = `<i class="fas fa-star"></i> ${data.desc}`;
+                    
+                    // Clear the pitch box (since it's not a play)
+                    document.getElementById('pitch-log').innerHTML = "<span class='text-muted'>Play halted for milestone recognition...</span>";
+                    
+                    // Update bases silently, but DO NOT append to the play log!
+                    updateBase('1', data.r1); updateBase('2', data.r2); updateBase('3', data.r3);
+                    
+                } else {
+                    // It's a regular play! Revert the banner to normal.
+                    headerBox.className = "card-header bg-light d-flex justify-content-between align-items-center";
+                    headerText.className = "fw-bold text-primary";
+                    headerText.innerText = `${data.player} is batting...`;
+                    
+                    document.getElementById('pitch-log').innerHTML = data.pitch_log ? data.pitch_log : "<span class='text-muted'>No pitch sequence available.</span>";
+                    
+                    let badgeClass = "bg-primary";
+                    if (data.type === "Scoring Play") badgeClass = "bg-success";
+
+                    appendCurrentPlay(data.type, `<strong>${data.player}:</strong> ${data.desc}`, badgeClass);
+
+                    // Animate the Hit, then update base runners after the ball lands
+                    animateHit(data.desc);
+                    setTimeout(() => {
+                        updateBase('1', data.r1);
+                        updateBase('2', data.r2);
+                        updateBase('3', data.r3);
+                    }, 800); 
+                }
+
+                currentEventIndex++;
+            });
+    }
+
+    // Parses the play description and moves the CSS baseball
+    function animateHit(description) {
+        const ball = document.getElementById('baseball');
+        const desc = description.toLowerCase();
+        
+        ball.style.transition = "none";
+        ball.style.top = "80%";
+        ball.style.left = "50%";
+        ball.style.opacity = "1";
+        
+        void ball.offsetWidth; 
+        
+        ball.style.transition = "top 0.8s cubic-bezier(0.25, 1, 0.5, 1), left 0.8s cubic-bezier(0.25, 1, 0.5, 1), opacity 0.2s";
+
+        if (desc.includes("strikeout") || desc.includes("walk")) {
+            ball.style.top = "85%"; 
+        } else if (desc.includes("left field line")) {
+            ball.style.top = "40%"; ball.style.left = "10%";
+        } else if (desc.includes("left field") || desc.includes("5-6 hole") || desc.includes("third base")) {
+            ball.style.top = "30%"; ball.style.left = "25%";
+        } else if (desc.includes("left center") || desc.includes("shortstop")) {
+            ball.style.top = "20%"; ball.style.left = "35%";
+        } else if (desc.includes("center field") || desc.includes("up the middle")) {
+            ball.style.top = "15%"; ball.style.left = "50%";
+        } else if (desc.includes("right center") || desc.includes("second base")) {
+            ball.style.top = "20%"; ball.style.left = "65%";
+        } else if (desc.includes("right field") || desc.includes("3-4 hole") || desc.includes("first base")) {
+            ball.style.top = "30%"; ball.style.left = "75%";
+        } else if (desc.includes("right field line")) {
+            ball.style.top = "40%"; ball.style.left = "90%";
+        } else {
+            ball.style.top = "50%"; ball.style.left = "50%";
+        }
+
+        setTimeout(() => {
+            ball.style.opacity = "0";
+        }, 1200);
+    }
+
+    // FIXED: Now updates the diamond AND the scoreboard text simultaneously
+    function updateBase(baseNum, runnerName) {
+        const baseDiv = document.getElementById(`base${baseNum}`);
+        const nameDiv = document.getElementById(`name-${baseNum}b`);
+        const sbText = document.getElementById(`text-${baseNum}b`);
+        
+        // Ensure "None" or "null" are treated as empty bases
+        if (runnerName && runnerName !== "None" && runnerName !== "null") {
+            baseDiv.classList.add('occupied');
+            nameDiv.innerText = runnerName;
+            
+            // Highlight scoreboard text
+            sbText.innerText = `${baseNum}B: ${runnerName}`;
+            sbText.className = "text-warning"; 
+        } else {
+            baseDiv.classList.remove('occupied');
+            nameDiv.innerText = "";
+            
+            // Dim scoreboard text
+            sbText.innerText = `${baseNum}B: Empty`;
+            sbText.className = "text-light opacity-50"; 
+        }
+    }
+
+    function resetField() {
+        document.getElementById('out1').className = "out-dot";
+        document.getElementById('out2').className = "out-dot";
+        document.getElementById('out3').className = "out-dot";
+        updateBase('1', null); updateBase('2', null); updateBase('3', null);
+    }
+
+    function appendCurrentPlay(type, text, badgeClass) {
+        const startMsg = document.getElementById('starting-msg');
+        if(startMsg) startMsg.style.display = 'none';
+        
+        const logBox = document.getElementById('current-inning-log');
+        const entry = document.createElement('div');
+        entry.className = "mb-2 pb-2 border-bottom";
+        entry.innerHTML = `<span class="badge ${badgeClass} mb-1">${type}</span><br><span class="text-dark small">${text}</span>`;
+        
+        logBox.prepend(entry); 
+    }
+
+    function archiveInningLog(inningLabel) {
+        const currentLogBox = document.getElementById('current-inning-log');
+        const historyBox = document.getElementById('full-game-log');
+        
+        if (currentLogBox.innerHTML.trim() !== "") {
+            const archiveBlock = document.createElement('div');
+            archiveBlock.className = "mb-4";
+            archiveBlock.innerHTML = `<h5 class="border-bottom pb-2 text-primary fw-bold">${inningLabel}</h5>${currentLogBox.innerHTML}`;
+            
+            historyBox.prepend(archiveBlock); 
+            currentLogBox.innerHTML = ""; 
+        }
+    }
+
+    function toggleAutoPlay() {
+        const btn = document.getElementById('btn-auto');
+        if (autoPlayInterval) {
+            stopAutoPlay();
+            btn.innerHTML = 'Auto <i class="fas fa-play"></i>';
+            btn.classList.replace('btn-success', 'btn-outline-success');
+        } else {
+            autoPlayInterval = setInterval(fetchNextPlay, 4500); 
+            btn.innerHTML = 'Pause <i class="fas fa-pause"></i>';
+            btn.classList.replace('btn-outline-success', 'btn-success');
+        }
+    }
+
+    function stopAutoPlay() {
+        clearInterval(autoPlayInterval);
+        autoPlayInterval = null;
+    }
+
+    document.getElementById('btn-next').addEventListener('click', () => {
+        stopAutoPlay(); 
+        fetchNextPlay();
+    });
+    
+    document.getElementById('btn-auto').addEventListener('click', toggleAutoPlay);
+</script>
+{% endblock %}

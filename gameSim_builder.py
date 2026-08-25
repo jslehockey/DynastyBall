@@ -10,6 +10,127 @@ from model_player import Player
 from model_team import Team
 from model_stadium import Stadium
 from recordBook import RecordBook
+from sqlalchemy import text
+from app import db
+
+def load_state_from_db(engine):
+    print("Loading current game state from SQLite Database...")
+    
+    # 1. Load Teams
+    teams = db.session.execute(text("SELECT team_id, location, nickname FROM teams")).fetchall()
+    
+    engine.teams = []
+    for team in teams:
+        team_name = f"{team.location} {team.nickname}"
+        engine.teams.append(team_name)
+        engine.team_ids[team_name] = team.team_id
+        engine.standings[team_name] = {"W": 0, "L": 0, "RS": 0, "RA": 0}
+        
+    print(f"  > Found {len(engine.teams)} franchises.")
+
+    # 2. Load and Auto-Fill Rosters
+    for team in teams:
+        team_name = f"{team.location} {team.nickname}"
+        
+        # Grab all Majors players for this team
+        roster_query = text("""
+            SELECT b.player_id, b.first_name, b.last_name, r.position, r.assigned_role, r.batting_order,
+                   r.con_timing, r.con_barrel, r.pow_str, r.pow_batspd, r.pow_elev,
+                   r.disc_eye, r.disc_restr, r.spd_sprint, r.spd_inst,
+                   r.def_range, r.def_react, r.def_glove, r.def_armstr, r.def_armacc,
+                   r.stam_max, r.stam_cur, r.pit_velo, r.pit_ctrl, r.pit_mov
+            FROM players_base b
+            JOIN player_ratings r ON b.player_id = r.player_id
+            WHERE r.team_id = :tid AND r.league_level = 'MLB'
+        """)
+        raw_players = db.session.execute(roster_query, {'tid': team.team_id}).fetchall()
+        
+        team_dict_roster = []
+        hitters = []
+        pitchers = []
+        
+        # Format them into the old dictionary structure the engine expects
+        for row in raw_players:
+            p_dict = {
+                "ID": row.player_id,
+                "Name": f"{row.first_name} {row.last_name}",
+                "Pos": row.position,
+                "Primary Pos": row.position,
+                "Game Pos": row.position,
+                "Role/Order": str(row.assigned_role) if row.assigned_role else "",
+                "Con.Timing": row.con_timing, "Con.Barrel": row.con_barrel,
+                "Pow.Str": row.pow_str, "Pow.BatSpd": row.pow_batspd, "Pow.Elev": row.pow_elev,
+                "Disc.Eye": row.disc_eye, "Disc.Restr": row.disc_restr,
+                "Spd.Sprint": row.spd_sprint, "Spd.Inst": row.spd_inst,
+                "Def.Range": row.def_range, "Def.React": row.def_react, "Def.Glove": row.def_glove,
+                "Def.ArmStr": row.def_armstr, "Def.ArmAcc": row.def_armacc,
+                "Max Stam": row.stam_max, "Cur Stam": row.stam_cur,
+                "Vel.ArmSpd": row.pit_velo, "Ctrl.Acc": row.pit_ctrl, "Mov.Spin": row.pit_mov,
+                "ovr_score": (row.con_timing + row.pow_str + row.spd_sprint + row.def_glove) # Rough score for auto-fill sorting
+            }
+            team_dict_roster.append(p_dict)
+            
+            if row.position in ['SP', 'MR', 'LR', 'SU', 'CL', 'RP', 'P']:
+                pitchers.append(p_dict)
+            else:
+                hitters.append(p_dict)
+
+        # ==========================================
+        # AUTO-FILL FAILSAFE LOGIC
+        # ==========================================
+        # 1. Ensure 9 Hitters
+        assigned_orders = [p["Role/Order"] for p in hitters if p["Role/Order"].isdigit() and 1 <= int(p["Role/Order"]) <= 9]
+        missing_orders = [str(i) for i in range(1, 10) if str(i) not in assigned_orders]
+        
+        if missing_orders:
+            print(f"  [WARNING] {team_name} is missing lineup spots: {missing_orders}. Auto-filling...")
+            # Sort available hitters by OVR who are NOT already in the lineup
+            available_hitters = sorted([h for h in hitters if h["Role/Order"] not in assigned_orders], key=lambda x: x["ovr_score"], reverse=True)
+            
+            for missing_spot in missing_orders:
+                if available_hitters:
+                    chosen = available_hitters.pop(0)
+                    chosen["Role/Order"] = missing_spot
+                else:
+                    print(f"  [FATAL] {team_name} literally does not have 9 position players on the roster to play the game!")
+                    
+        # 2. Ensure an SP1 exists to start the game
+        has_sp1 = any(p["Role/Order"] == "SP1" for p in pitchers)
+        if not has_sp1:
+            print(f"  [WARNING] {team_name} has no SP1. Auto-assigning best pitcher...")
+            available_pitchers = sorted(pitchers, key=lambda x: x["Vel.ArmSpd"] + x["Ctrl.Acc"] + x["Mov.Spin"], reverse=True)
+            if available_pitchers:
+                available_pitchers[0]["Role/Order"] = "SP1"
+                
+        engine.rosters[team_name] = team_dict_roster
+        
+        # Initialize Stat Tracking
+        for player in team_dict_roster:
+            pid = str(player["ID"])
+            engine.player_stats[pid] = {
+                "ID": pid, "Name": player["Name"], "Team": team_name, "Pos": player["Pos"],
+                "G": 0, "PA": 0, "AB": 0, "R": 0, "H": 0, "1B": 0, "2B": 0, "3B": 0, "HR": 0, 
+                "RBI": 0, "BB": 0, "HBP": 0, "K_bat": 0, "SB": 0, "CS": 0, "SF": 0, "GIDP": 0,
+                "Outs_pit": 0, "H_allowed": 0, "R_allowed": 0, "ER": 0, "HR_allowed": 0, 
+                "BB_allowed": 0, "HBP_allowed": 0, "K_pit": 0, "W": 0, "L": 0, "SV": 0, 
+                "HLD": 0, "BS": 0, "Pitches": 0, "CG": 0, "SHO": 0,
+                "PO": 0, "A": 0, "E": 0, "TC": 0
+            }
+
+    # For now, assign default generic parks
+    for team_name in engine.teams:
+        engine.parks[team_name] = {
+            "dimensions": {"Left Field Line": 330, "Dead Center": 400, "Right Field Line": 330}, 
+            "heights": {"Left Field Line": 10, "Dead Center": 10, "Right Field Line": 10}, 
+            "capacity": 35000, "ticket_price": 35.00, 
+            "prestige": 50, "tier": 1
+        }
+        
+    # ==========================================
+    # NEW: Initialize the Record Book for Season 1
+    # ==========================================
+    from recordBook import RecordBook
+    engine.record_book = RecordBook([])
 
 def load_stadium_dimensions(engine, SHEET):
     print("  > Loading stadium dimensions, economy, and tier data from 'Parks' sheet...")

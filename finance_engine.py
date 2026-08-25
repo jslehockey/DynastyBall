@@ -1,5 +1,10 @@
 # finance_engine.py
 import sqlite3
+import os
+
+# Grab the absolute path so it never misses the test database
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, 'diamondbucs_test.db')
 
 def validate_bid(bid, team_finances, player_age):
     """
@@ -23,13 +28,13 @@ def get_available_fa_money(team_id):
     Calculates available Free Agency money by checking the latest season's ledger.
     Formula: Max Season ID Balance - Current Contracts.
     """
-    conn = sqlite3.connect('diamondbucs.db')
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
     # ORDER BY season DESC LIMIT 1 ensures we always grab the most recent season (Max Season ID)
     cursor.execute("""
         SELECT balance, cost_players 
-        FROM Team_Financials 
+        FROM team_financials 
         WHERE team_id = ? 
         ORDER BY season DESC 
         LIMIT 1

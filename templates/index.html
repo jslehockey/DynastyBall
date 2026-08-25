@@ -1,27 +1,55 @@
 {% extends "base.html" %}
 
 {% block content %}
-    <h2 class="mb-4 text-dark fw-bold">Manager Dashboard</h2>
+<style>
+    .dash-header {
+        background-color: {{ team_color_1 }};
+        color: {{ team_color_2 }};
+        border-bottom: 4px solid {{ team_color_2 }};
+    }
+    
+    .news-icon {
+        color: {{ team_color_1 }};
+    }
+    
+    .trophy-case-empty {
+        background-color: #fdfdfd;
+        border: 2px dashed #eee;
+        border-radius: 0 0 8px 8px;
+    }
+</style>
+
+    <div class="d-flex justify-content-between align-items-center mb-4 mt-2 border-bottom pb-2" style="border-color: {{ team_color_1 }} !important;">
+        <h2 class="mb-0 text-dark fw-bold">{{ team_nickname }} Manager Dashboard</h2>
+        <span class="badge bg-dark fs-6">Season 1</span>
+    </div>
     
     <!-- The Grid Row -->
-    <div class="row g-4"> <!-- g-4 adds perfect spacing between the modules -->
+    <div class="row g-4"> 
         
         <!-- MODULE 1: Major League Team Preview -->
         <div class="col-md-6">
-            <!-- h-100 ensures modules stretch to the same height -->
             <div class="card shadow-sm border-0 h-100">
-                <div class="card-header card-header-dynamic fw-bold">
-                    Major League Team
+                <div class="card-header dash-header fw-bold fs-5 text-uppercase">
+                    <i class="fas fa-baseball-ball me-2"></i> Major League Team
                 </div>
                 <div class="card-body">
-                    <h5 class="card-title">Current Record: 54-32</h5>
-                    <p class="card-text text-muted">1st Place, NL East</p>
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <div>
+                            <h4 class="card-title fw-bold mb-0 text-dark">{{ dashboard_stats.record }}</h4>
+                            <p class="card-text text-muted fw-bold">{{ dashboard_stats.standing }}</p>
+                        </div>
+                        <div class="text-end">
+                            <span class="badge {{ 'bg-danger' if limits.mlb_full else 'bg-success' }} fs-6 mb-1">
+                                Roster: {{ limits.mlb_count }} / 26
+                            </span><br>
+                            <span class="text-muted fw-bold fs-6">Payroll: <span class="text-success">${{ "{:,.1f}".format(dashboard_stats.mlb_payroll / 1000000) }}M</span></span>
+                        </div>
+                    </div>
                     <hr>
-                    <p class="mb-1"><strong>Top Hitter:</strong> S. Suzuki (.312 AVG)</p>
-                    <p><strong>Top Pitcher:</strong> J. Steele (2.45 ERA)</p>
+                    <p class="mb-1 text-muted"><i class="fas fa-chart-line me-2"></i><strong>Team Leaders:</strong> <em>Simulation Engine Pending</em></p>
                     
-                    <!-- This button takes them to the single-module view -->
-                    <a href="{{ url_for('main.major_league') }}" class="btn btn-outline-primary btn-sm mt-2">Manage Full Roster &raquo;</a>
+                    <a href="{{ url_for('main.major_league') }}" class="btn btn-outline-dark fw-bold btn-sm mt-3 w-100 border-2">Manage MLB Roster &raquo;</a>
                 </div>
             </div>
         </div>
@@ -29,32 +57,77 @@
         <!-- MODULE 2: Minor League System Preview -->
         <div class="col-md-6">
             <div class="card shadow-sm border-0 h-100">
-                <div class="card-header card-header-dynamic fw-bold">
-                    Minor League Team
+                <div class="card-header dash-header fw-bold fs-5 text-uppercase" style="background-color: {{ team_color_2 }}; color: {{ team_color_1 }}; border-bottom: 4px solid {{ team_color_1 }};">
+                    <i class="fas fa-seedling me-2"></i> Minor League Affiliate
                 </div>
                 <div class="card-body">
-                    <h5 class="card-title">Farm System Rank: #4</h5>
-                    <p class="card-text text-muted">3 Top-100 Prospects</p>
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <div>
+                            <h4 class="card-title fw-bold mb-0 text-dark">AAA Roster</h4>
+                            <p class="card-text text-muted fw-bold">Development System</p>
+                        </div>
+                        <div class="text-end">
+                            <span class="badge {{ 'bg-danger' if limits.aaa_full else 'bg-primary' }} fs-6 mb-1">
+                                Roster: {{ limits.aaa_count }} / 30
+                            </span><br>
+                            <span class="text-muted fw-bold fs-6">Payroll: <span class="text-success">${{ "{:,.1f}".format(dashboard_stats.aaa_payroll / 1000000) }}M</span></span>
+                        </div>
+                    </div>
                     <hr>
-                    <p class="mb-1"><strong>AAA Affiliate:</strong> Iowa Cubs</p>
-                    <p><strong>Recent Promotion:</strong> Pete Crow-Armstrong</p>
+                    <p class="mb-1 text-muted"><i class="fas fa-star me-2"></i><strong>Top Prospects:</strong> <em>Scouting Engine Pending</em></p>
                     
-                    <!-- This button takes them to the single-module view -->
-                    <a href="{{ url_for('main.minor_league') }}" class="btn btn-outline-primary btn-sm mt-2">Manage Full Roster &raquo;</a>
+                    <a href="{{ url_for('main.minor_league') }}" class="btn btn-outline-dark fw-bold btn-sm mt-3 w-100 border-2">Manage AAA Roster &raquo;</a>
                 </div>
             </div>
         </div>
 
-        <!-- MODULE 3: Recent Transactions (Spans full width below the top two) -->
+        <!-- MODULE 2.5: Trophy Room (Full Width) -->
         <div class="col-md-12">
             <div class="card shadow-sm border-0">
-                <div class="card-header card-header-dynamic fw-bold">
-                    🤝 Recent Front Office Moves
+                <div class="card-header bg-dark text-warning fw-bold fs-5 text-uppercase">
+                    <i class="fas fa-trophy me-2"></i> Trophy Room
                 </div>
-                <div class="card-body">
+                <div class="card-body text-center py-5 trophy-case-empty">
+                    <div class="text-muted opacity-25 mb-3">
+                        <i class="fas fa-trophy" style="font-size: 3.5rem;"></i>
+                    </div>
+                    <h5 class="fw-bold text-muted mb-1">The Cabinet is Empty</h5>
+                    <p class="small text-muted mb-0">Championships, pennants, and awards will be displayed here as you build your dynasty.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODULE 3: Recent Transactions & News -->
+        <div class="col-md-12 mb-4">
+            <div class="card shadow-sm border-0">
+                <div class="card-header bg-dark text-white fw-bold fs-5 text-uppercase">
+                    <i class="fas fa-newspaper me-2 text-warning"></i> Front Office Wire
+                </div>
+                <div class="card-body p-0">
                     <ul class="list-group list-group-flush">
-                        <li class="list-group-item">Traded <strong>SP Kyle Hendricks</strong> for a 2027 3rd Round Pick.</li>
-                        <li class="list-group-item">Signed <strong>RP Aroldis Chapman</strong> to a 1-year, $4M contract.</li>
+                        {% if recent_bids %}
+                            {% for bid in recent_bids %}
+                            <li class="list-group-item py-3 d-flex align-items-center">
+                                <i class="fas fa-file-signature fs-4 me-3 news-icon"></i>
+                                <div>
+                                    <span class="badge bg-warning text-dark mb-1">Contract Offer</span><br>
+                                    The Front Office extended a <strong>{{ bid.years }}-year, ${{ "{:,.1f}".format((bid.salary * bid.years) / 1000000) }}M</strong> offer to Free Agent <strong>{{ bid.first_name }} {{ bid.last_name }}</strong>.
+                                </div>
+                            </li>
+                            {% endfor %}
+                        {% else %}
+                            <li class="list-group-item py-4 text-center text-muted fw-bold">
+                                <em>No recent transactions or pending offers to display.</em>
+                            </li>
+                        {% endif %}
+                        <!-- Placeholder for future trade news -->
+                        <li class="list-group-item py-3 d-flex align-items-center bg-light">
+                            <i class="fas fa-info-circle fs-4 me-3 text-muted"></i>
+                            <div class="text-muted">
+                                <span class="badge bg-secondary mb-1">System</span><br>
+                                Welcome to the Front Office. Trade block and waiver wire logs will appear here once the season begins.
+                            </div>
+                        </li>
                     </ul>
                 </div>
             </div>

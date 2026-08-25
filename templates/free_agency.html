@@ -1,0 +1,343 @@
+{% extends "base.html" %}
+
+{% block content %}
+<style>
+    /* Whiteboard Styles */
+    .whiteboard-container { background-color: #fdfdfd; border: 3px solid #222; border-radius: 8px; position: relative; height: 300px; width: 100%; max-width: 450px; margin: 0 auto; box-shadow: inset 0 0 10px rgba(0,0,0,0.05); }
+    .wb-diamond { position: absolute; bottom: 35px; left: 50%; transform: translateX(-50%) rotate(45deg); width: 110px; height: 110px; border: 2px solid rgba(0,0,0,0.15); }
+    .wb-pos { position: absolute; transform: translateX(-50%); text-align: center; background: rgba(255, 255, 255, 0.95); padding: 4px; border-radius: 6px; border: 1px solid #ccc; box-shadow: 0 3px 6px rgba(0,0,0,0.1); min-width: 50px; z-index: 2; }
+    .wb-label { font-size: 0.65rem; font-weight: 800; margin-bottom: 2px; color: #555; text-transform: uppercase; }
+    .wb-count { font-size: 1.1rem; font-weight: bold; color: #000; line-height: 1; }
+    .wb-c  { bottom: 4%; left: 50%; } .wb-p  { bottom: 30%; left: 50%; } .wb-1b { bottom: 42%; left: 78%; } .wb-2b { bottom: 58%; left: 65%; } .wb-ss { bottom: 58%; left: 35%; } .wb-3b { bottom: 42%; left: 22%; } .wb-lf { top: 8%; left: 18%; } .wb-cf { top: 4%; left: 50%; } .wb-rf { top: 8%; left: 82%; }
+
+    /* Table Styles */
+    .table-hover tbody tr:hover { background-color: rgba(0,0,0,0.04); transition: background-color 0.2s; }
+    th.sortable { cursor: pointer; user-select: none; position: relative; padding-right: 20px !important; }
+    th.sortable:hover { background-color: rgba(0,0,0,0.08); }
+    th.sortable::after { content: '↕'; position: absolute; right: 5px; color: #aaa; font-weight: normal; font-size: 0.9em; }
+    th.sort-asc::after { content: '↓'; color: #000; font-weight: bold; }
+    th.sort-desc::after { content: '↑'; color: #000; font-weight: bold; }
+    .rating-cell { width: 65px; font-weight: 700; font-size: 0.95rem; border: 1px solid rgba(0,0,0,0.05); }
+    
+    .hidden-section { display: none !important; }
+</style>
+
+<div class="container-fluid mt-2">
+    
+    <!-- HEADER & WHITEBOARD -->
+    <div class="row mb-4 align-items-center">
+        <div class="col-md-6">
+            <h2 class="mb-1 fw-bold text-uppercase">Free Agency Market</h2>
+            <p class="text-muted fs-6">Evaluate unassigned players and negotiate contracts.</p>
+
+            <!-- NEW: Roster Limit Badges -->
+            <div class="d-flex gap-3">
+                <!-- MLB Badge -->
+                <div class="fs-6 fw-bold px-3 py-2 rounded shadow-sm" 
+                     style="background-color: {% if limits.mlb_full %}#ffebee{% else %}#e8f5e9{% endif %}; 
+                            color: {% if limits.mlb_full %}#d32f2f{% else %}#2e7d32{% endif %}; 
+                            border: 1px solid {% if limits.mlb_full %}#ef9a9a{% else %}#a5d6a7{% endif %};">
+                    Majors Roster: {{ limits.mlb_count }} / 26
+                </div>
+                <!-- AAA Badge -->
+                <div class="fs-6 fw-bold px-3 py-2 rounded shadow-sm" 
+                     style="background-color: {% if limits.aaa_full %}#ffebee{% else %}#e8f5e9{% endif %}; 
+                            color: {% if limits.aaa_full %}#d32f2f{% else %}#2e7d32{% endif %}; 
+                            border: 1px solid {% if limits.aaa_full %}#ef9a9a{% else %}#a5d6a7{% endif %};">
+                    Minors Roster: {{ limits.aaa_count }} / 30
+                </div>
+            </div>
+            <!-- Offseason Clock Badge -->
+                <div class="fs-6 fw-bold px-3 py-2 rounded shadow-sm bg-dark text-white">
+                    Offseason Day: {{ current_day }} / 4
+                </div>
+            </div>
+        <div class="col-md-6">
+            <div class="card shadow-sm border-0">
+                <div class="card-header card-header-dynamic py-1 fw-bold text-center" style="font-size: 0.85rem;">
+                    Current Team Depth ({{ team_nickname }})
+                </div>
+                <div class="card-body p-2 bg-light">
+                    <div class="whiteboard-container">
+                        <div class="wb-diamond"></div>
+                        {% for pos in ['C', '1B', '2B', '3B', 'SS', 'LF', 'CF', 'RF', 'P'] %}
+                        <div class="wb-pos wb-{{ pos|lower }}">
+                            <div class="wb-label">{{ pos }}</div>
+                            <div class="wb-count">{{ pos_counts[pos] }}</div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- TOGGLE BUTTONS -->
+    <div class="row mb-3">
+        <div class="col-12 d-flex justify-content-center">
+            <div class="btn-group shadow-sm" role="group" aria-label="Toggle Hitters and Pitchers">
+                <button type="button" id="btn-hitters" class="btn btn-primary fw-bold px-5 active" onclick="toggleView('hitters')">Hitters</button>
+                <button type="button" id="btn-pitchers" class="btn btn-outline-primary fw-bold px-5" onclick="toggleView('pitchers')">Pitchers</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MAIN DATA TABLES -->
+    <div class="card shadow-sm border-0">
+        <div class="card-body p-0">
+            
+            <!-- HITTERS TABLE -->
+            <div id="section-hitters" class="table-responsive" style="max-height: 700px; overflow-y: auto;">
+                <table class="table table-hover align-middle text-center mb-0" id="table-hitters">
+                    <thead class="table-light sticky-top shadow-sm">
+                        <tr>
+                            <th class="text-start ps-3 sortable" data-type="string" onclick="sortTable(this)">Player Name</th>
+                            <th class="sortable" data-type="number" onclick="sortTable(this)">Age</th>
+                            <th class="sortable" data-type="string" onclick="sortTable(this)">Pos</th>
+                            <th class="sortable" data-type="number" onclick="sortTable(this)">OVR</th>
+                            <th class="sortable" data-type="number" onclick="sortTable(this)">CON</th>
+                            <th class="sortable" data-type="number" onclick="sortTable(this)">POW</th>
+                            <th class="sortable" data-type="number" onclick="sortTable(this)">SPD</th>
+                            <th class="sortable" data-type="number" onclick="sortTable(this)">DEF</th>
+                            <th class="sortable" data-type="string" onclick="sortTable(this)">STAM</th>
+                            <th class="sortable" data-type="number" onclick="sortTable(this)">Offers</th>
+                            <th class="pe-3">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for p in fa_hitters %}
+                        <tr>
+                            <td class="text-start ps-3">
+                                <a href="{{ url_for('main.player_profile', player_id=p.id) }}" class="fw-bold text-primary text-decoration-none" target="_blank">{{ p.name }}</a>
+                            </td>
+                            <td>{{ p.age }}</td>
+                            <td><span class="badge bg-secondary">{{ p.pos }}</span></td>
+                            <td class="rating-cell" style="background-color: {{ get_main_bg(p.ovr) }}; color: {{ get_main_text(p.ovr) }};">{{ p.ovr }}</td>
+                            <td class="rating-cell" style="background-color: {{ get_main_bg(p.con) }}; color: {{ get_main_text(p.con) }};">{{ p.con }}</td>
+                            <td class="rating-cell" style="background-color: {{ get_main_bg(p.pow) }}; color: {{ get_main_text(p.pow) }};">{{ p.pow }}</td>
+                            <td class="rating-cell" style="background-color: {{ get_main_bg(p.spd) }}; color: {{ get_main_text(p.spd) }};">{{ p.spd }}</td>
+                            <td class="rating-cell" style="background-color: {{ get_main_bg(p.def) }}; color: {{ get_main_text(p.def) }};">{{ p.def }}</td>
+                            <td class="fw-bold" style="color: {{ get_stamina_color(p.stam_cur, p.stam_tot) }};">{{ p.stam_cur }}/{{ p.stam_tot }}</td>
+                            
+                            <!-- Total Offers Column -->
+                            <td class="fw-bold align-middle">
+                                {% if p.total_offers > 0 %}
+                                    <span class="badge bg-danger">{{ p.total_offers }}</span>
+                                {% else %}
+                                    <span class="text-muted">0</span>
+                                {% endif %}
+                            </td>
+                            
+                            <td class="pe-3 align-middle">
+                                <!-- Dynamic Button Text -->
+                                <button type="button" class="btn btn-sm fw-bold {% if p.my_offer %}btn-primary{% else %}btn-success{% endif %}" data-bs-toggle="modal" data-bs-target="#offerModal{{ p.id }}">
+                                    {% if p.my_offer %}Update Offer{% else %}Offer Contract{% endif %}
+                                </button>
+
+                                <!-- Offer Modal -->
+                                <div class="modal fade" id="offerModal{{ p.id }}" tabindex="-1" aria-labelledby="offerModalLabel{{ p.id }}" aria-hidden="true">
+                                  <div class="modal-dialog">
+                                    <div class="modal-content text-start text-dark font-sans">
+                                      <form action="{{ url_for('main.submit_offer', player_id=p.id) }}" method="POST">
+                                        <div class="modal-header">
+                                          <h5 class="modal-title fw-bold" id="offerModalLabel{{ p.id }}">Negotiate with {{ p.name }}</h5>
+                                          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                        </div>
+                                        <div class="modal-body">
+                                          <input type="hidden" name="team_id" value="{{ team_id }}">
+                                          
+                                          {% if p.my_offer %}
+                                          <div class="alert alert-info border-info fw-bold py-2">
+                                              Your Current Offer: {{ p.my_offer.years }} yrs / ${{ "{:,.0f}".format(p.my_offer.salary) }} per year
+                                          </div>
+                                          {% endif %}
+                                          
+                                          <div class="mb-3">
+                                            <label class="form-label fw-bold">Contract Length (Years)</label>
+                                            <input type="number" class="form-control" name="years" min="1" max="7" value="{{ p.my_offer.years if p.my_offer else 1 }}" required>
+                                          </div>
+                                          
+                                          <div class="mb-3">
+                                            <label class="form-label fw-bold">Yearly Salary ($)</label>
+                                            <input type="number" class="form-control" name="salary" min="750000" step="100000" value="{{ p.my_offer.salary if p.my_offer else 750000 }}" required>
+                                            <div class="form-text">League minimum is $750,000.</div>
+                                          </div>
+                                        </div>
+                                        <div class="modal-footer">
+                                          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                          <button type="submit" class="btn fw-bold {% if p.my_offer %}btn-primary{% else %}btn-success{% endif %}">
+                                              {% if p.my_offer %}Submit Revised Bid{% else %}Submit Official Bid{% endif %}
+                                          </button>
+                                        </div>
+                                      </form>
+                                    </div>
+                                  </div>
+                                </div>
+                                <!-- End Modal -->
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- PITCHERS TABLE (Hidden by default) -->
+            <div id="section-pitchers" class="table-responsive hidden-section" style="max-height: 700px; overflow-y: auto;">
+                <table class="table table-hover align-middle text-center mb-0" id="table-pitchers">
+                    <thead class="table-light sticky-top shadow-sm">
+                        <tr>
+                            <th class="text-start ps-3 sortable" data-type="string" onclick="sortTable(this)">Player Name</th>
+                            <th class="sortable" data-type="number" onclick="sortTable(this)">Age</th>
+                            <th class="sortable" data-type="string" onclick="sortTable(this)">Pos</th>
+                            <th class="sortable" data-type="number" onclick="sortTable(this)">OVR</th>
+                            <th class="sortable" data-type="number" onclick="sortTable(this)">VEL</th>
+                            <th class="sortable" data-type="number" onclick="sortTable(this)">CTRL</th>
+                            <th class="sortable" data-type="number" onclick="sortTable(this)">MOV</th>
+                            <th class="sortable" data-type="string" onclick="sortTable(this)">STAM</th>
+                            <th class="sortable" data-type="number" onclick="sortTable(this)">Offers</th>
+                            <th class="pe-3">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for p in fa_pitchers %}
+                        <tr>
+                            <td class="text-start ps-3">
+                                <a href="{{ url_for('main.player_profile', player_id=p.id) }}" class="fw-bold text-primary text-decoration-none" target="_blank">{{ p.name }}</a>
+                            </td>
+                            <td>{{ p.age }}</td>
+                            <td><span class="badge bg-secondary">{{ p.pos }}</span></td>
+                            <td class="rating-cell" style="background-color: {{ get_main_bg(p.ovr) }}; color: {{ get_main_text(p.ovr) }};">{{ p.ovr }}</td>
+                            <td class="rating-cell" style="background-color: {{ get_main_bg(p.vel) }}; color: {{ get_main_text(p.vel) }};">{{ p.vel }}</td>
+                            <td class="rating-cell" style="background-color: {{ get_main_bg(p.ctrl) }}; color: {{ get_main_text(p.ctrl) }};">{{ p.ctrl }}</td>
+                            <td class="rating-cell" style="background-color: {{ get_main_bg(p.mov) }}; color: {{ get_main_text(p.mov) }};">{{ p.mov }}</td>
+                            <td class="fw-bold" style="color: {{ get_stamina_color(p.stam_cur, p.stam_tot) }};">{{ p.stam_cur }}/{{ p.stam_tot }}</td>
+                            
+                            <!-- Total Offers Column -->
+                            <td class="fw-bold align-middle">
+                                {% if p.total_offers > 0 %}
+                                    <span class="badge bg-danger">{{ p.total_offers }}</span>
+                                {% else %}
+                                    <span class="text-muted">0</span>
+                                {% endif %}
+                            </td>
+                            
+                            <td class="pe-3 align-middle">
+                                <!-- Dynamic Button Text -->
+                                <button type="button" class="btn btn-sm fw-bold {% if p.my_offer %}btn-primary{% else %}btn-success{% endif %}" data-bs-toggle="modal" data-bs-target="#offerModal{{ p.id }}">
+                                    {% if p.my_offer %}Update Offer{% else %}Offer Contract{% endif %}
+                                </button>
+
+                                <!-- Offer Modal -->
+                                <div class="modal fade" id="offerModal{{ p.id }}" tabindex="-1" aria-labelledby="offerModalLabel{{ p.id }}" aria-hidden="true">
+                                  <div class="modal-dialog">
+                                    <div class="modal-content text-start text-dark font-sans">
+                                      <form action="{{ url_for('main.submit_offer', player_id=p.id) }}" method="POST">
+                                        <div class="modal-header">
+                                          <h5 class="modal-title fw-bold" id="offerModalLabel{{ p.id }}">Negotiate with {{ p.name }}</h5>
+                                          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                        </div>
+                                        <div class="modal-body">
+                                          <input type="hidden" name="team_id" value="{{ team_id }}">
+                                          
+                                          {% if p.my_offer %}
+                                          <div class="alert alert-info border-info fw-bold py-2">
+                                              Your Current Offer: {{ p.my_offer.years }} yrs / ${{ "{:,.0f}".format(p.my_offer.salary) }} per year
+                                          </div>
+                                          {% endif %}
+                                          
+                                          <div class="mb-3">
+                                            <label class="form-label fw-bold">Contract Length (Years)</label>
+                                            <input type="number" class="form-control" name="years" min="1" max="7" value="{{ p.my_offer.years if p.my_offer else 1 }}" required>
+                                          </div>
+                                          
+                                          <div class="mb-3">
+                                            <label class="form-label fw-bold">Yearly Salary ($)</label>
+                                            <input type="number" class="form-control" name="salary" min="750000" step="100000" value="{{ p.my_offer.salary if p.my_offer else 750000 }}" required>
+                                            <div class="form-text">League minimum is $750,000.</div>
+                                          </div>
+                                        </div>
+                                        <div class="modal-footer">
+                                          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                          <button type="submit" class="btn fw-bold {% if p.my_offer %}btn-primary{% else %}btn-success{% endif %}">
+                                              {% if p.my_offer %}Submit Revised Bid{% else %}Submit Official Bid{% endif %}
+                                          </button>
+                                        </div>
+                                      </form>
+                                    </div>
+                                  </div>
+                                </div>
+                                <!-- End Modal -->
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+<script>
+    // --- TOGGLE LOGIC ---
+    function toggleView(viewType) {
+        const btnHitters = document.getElementById('btn-hitters');
+        const btnPitchers = document.getElementById('btn-pitchers');
+        const secHitters = document.getElementById('section-hitters');
+        const secPitchers = document.getElementById('section-pitchers');
+
+        if (viewType === 'hitters') {
+            btnHitters.classList.replace('btn-outline-primary', 'btn-primary');
+            btnHitters.classList.add('active');
+            btnPitchers.classList.replace('btn-primary', 'btn-outline-primary');
+            btnPitchers.classList.remove('active');
+            
+            secHitters.classList.remove('hidden-section');
+            secPitchers.classList.add('hidden-section');
+        } else {
+            btnPitchers.classList.replace('btn-outline-primary', 'btn-primary');
+            btnPitchers.classList.add('active');
+            btnHitters.classList.replace('btn-primary', 'btn-outline-primary');
+            btnHitters.classList.remove('active');
+            
+            secPitchers.classList.remove('hidden-section');
+            secHitters.classList.add('hidden-section');
+        }
+    }
+
+    // --- SORTING LOGIC (Excel-like functionality) ---
+    function sortTable(headerElement) {
+        const table = headerElement.closest('table');
+        const tbody = table.querySelector('tbody');
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+        const index = Array.from(headerElement.parentNode.children).indexOf(headerElement);
+        const type = headerElement.getAttribute('data-type');
+        
+        const isAsc = headerElement.classList.contains('sort-asc');
+        
+        // Clear all sort icons
+        table.querySelectorAll('th').forEach(th => {
+            th.classList.remove('sort-asc', 'sort-desc');
+        });
+
+        // Set new direction
+        const direction = isAsc ? -1 : 1;
+        headerElement.classList.add(isAsc ? 'sort-desc' : 'sort-asc');
+
+        rows.sort((a, b) => {
+            let valA = a.children[index].innerText.trim();
+            let valB = b.children[index].innerText.trim();
+
+            if (type === 'number') {
+                valA = parseInt(valA) || 0;
+                valB = parseInt(valB) || 0;
+                return (valA - valB) * direction;
+            } else {
+                return valA.localeCompare(valB) * direction;
+            }
+        });
+
+        rows.forEach(row => tbody.appendChild(row));
+    }
+</script>
+{% endblock %}

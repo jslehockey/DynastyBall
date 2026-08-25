@@ -1,5 +1,8 @@
 import sqlite3
 import os
+from datetime import datetime, timedelta
+from sqlalchemy import text
+from extensions import db
 
 # Grabs the absolute path of the directory this file is in
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -107,13 +110,15 @@ def parse_player_row(row):
 def check_roster_limits(team_id, season=1):
     conn = get_db_connection()
     try:
+        # 1. Count Majors
         mlb_count = conn.execute(
-            "SELECT COUNT(*) FROM Player_Ratings WHERE team_id = ? AND season = ? AND league_level = 'MLB'",
+            "SELECT COUNT(*) FROM player_ratings WHERE team_id = ? AND season = ? AND league_level = 'MLB'",
             (team_id, season)
         ).fetchone()[0]
         
+        # 2. Count Minors (NEW: Catches both AAA and MiLB)
         aaa_count = conn.execute(
-            "SELECT COUNT(*) FROM Player_Ratings WHERE team_id = ? AND season = ? AND league_level = 'AAA'",
+            "SELECT COUNT(*) FROM player_ratings WHERE team_id = ? AND season = ? AND league_level IN ('AAA', 'MiLB')",
             (team_id, season)
         ).fetchone()[0]
         
@@ -287,3 +292,99 @@ def get_player_age(player_id):
     result = cursor.fetchone()
     conn.close()
     return result[0] if result else None
+
+def get_current_offseason_day():
+    # Define when Free Agency officially opened (change this to your desired launch timestamp)
+    # For testing, let's say it started today at 8:00 AM
+    fa_start_time = datetime(2026, 8, 21, 8, 0, 0)
+    
+    now = datetime.now()
+    if now < fa_start_time:
+        return 1 # Hasn't started yet
+        
+    # Calculate total real-world minutes elapsed
+    elapsed_minutes = (now - fa_start_time).total_seconds() / 60
+    
+    # 30 real minutes = 1 in-game day
+    days_elapsed = int(elapsed_minutes // 30) + 1
+    
+    # Cap it at your 4-day max length
+    return min(4, days_elapsed)
+
+def process_expired_bids():
+    current_season = 1
+    current_day = get_current_offseason_day()
+    
+    # Find all players with pending bids whose decision day has arrived or passed
+    expired_bids_query = text("""
+        SELECT DISTINCT pb.player_id 
+        FROM fa_bids b
+        JOIN players_base pb ON b.player_id = pb.player_id
+        WHERE b.status = 'Pending' AND b.decision_day <= :current_day
+    """)
+    players_to_decide = db.session.execute(expired_bids_query, {'current_day': current_day}).fetchall()
+    
+    if not players_to_decide:
+        return
+        
+    print(f"\n--- REAL-TIME ENGINE: Processing decisions for Day {current_day} ---")
+    
+    for row in players_to_decide:
+        pid = row.player_id
+        
+        # Grab all bids for this player
+        bids_query = text("SELECT bid_id, team_id, years, salary FROM fa_bids WHERE player_id = :pid AND status = 'Pending'")
+        bids = db.session.execute(bids_query, {'pid': pid}).fetchall()
+        
+        if not bids:
+            continue
+            
+        # Highest AAV wins (with length tiebreaker)
+        winning_bid = max(bids, key=lambda b: b.salary + (b.years * 10000))
+        
+        if winning_bid:
+            # 1. Insert official contract
+            db.session.execute(text("""
+                INSERT INTO contracts (player_id, team_id, year_start, year_end, cost_per_season, status)
+                VALUES (:pid, :tid, :ystart, :yend, :cost, 'Active')
+            """), {
+                'pid': pid, 'tid': winning_bid.team_id,
+                'ystart': current_season, 'yend': current_season + winning_bid.years - 1,
+                'cost': winning_bid.salary
+            })
+            
+            # 2. Smart Roster Routing: Check limits before assigning level
+            team_limits = check_roster_limits(winning_bid.team_id, current_season)
+            
+            # If MLB is full, send them to the Minors (MiLB)
+            assigned_level = 'MiLB' if team_limits['mlb_full'] else 'MLB'
+            
+            db.session.execute(text("""
+                UPDATE player_ratings 
+                SET team_id = :tid, league_level = :level 
+                WHERE player_id = :pid AND season = :season
+            """), {
+                'tid': winning_bid.team_id, 
+                'level': assigned_level, 
+                'pid': pid, 
+                'season': current_season
+            })
+            
+            # 3. Clear all pending bids for this player
+            db.session.execute(text("DELETE FROM fa_bids WHERE player_id = :pid"), {'pid': pid})
+            
+            print(f"SIGNED: Player {pid} accepted Team {winning_bid.team_id}'s offer (${winning_bid.salary:,.0f}/yr)!")
+            
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        print(f"ERROR processing automated signings: {e}")
+
+def get_current_season():
+    """Dynamically grabs the current active season by checking the database."""
+    # Find the highest season number currently active in the database
+    result = db.session.execute(text("SELECT MAX(season) FROM player_ratings")).scalar()
+    
+    # If the database is completely empty for some reason, default to 1
+    return result if result else 1

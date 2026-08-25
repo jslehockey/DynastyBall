@@ -310,7 +310,7 @@ class PlayerFactory:
                 continue
             
             tier_mult = max(0.5, 1.0 - (0.07 * (league_tier - 1)))
-            expansion_mult = 0.87 if is_expansion else 1.0
+            expansion_mult = 0.80 if is_expansion else 0.94
             
             effective_mean = mean * tier_mult * minor_mult * expansion_mult
             

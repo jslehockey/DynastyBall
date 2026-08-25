@@ -28,14 +28,14 @@
                      style="background-color: {% if limits.mlb_full %}#ffebee{% else %}#e8f5e9{% endif %}; 
                             color: {% if limits.mlb_full %}#d32f2f{% else %}#2e7d32{% endif %}; 
                             border: 1px solid {% if limits.mlb_full %}#ef9a9a{% else %}#a5d6a7{% endif %};">
-                    MLB Roster: {{ limits.mlb_count }} / 26
+                    Majors Roster: {{ limits.mlb_count }} / 26
                 </div>
                 <!-- AAA Badge -->
                 <div class="fs-6 fw-bold px-3 py-2 rounded shadow-sm" 
                      style="background-color: {% if limits.aaa_full %}#ffebee{% else %}#e8f5e9{% endif %}; 
                             color: {% if limits.aaa_full %}#d32f2f{% else %}#2e7d32{% endif %}; 
                             border: 1px solid {% if limits.aaa_full %}#ef9a9a{% else %}#a5d6a7{% endif %};">
-                    AAA Roster: {{ limits.aaa_count }} / 30
+                    Minors Roster: {{ limits.aaa_count }} / 30
                 </div>
             </div>
         </div>
@@ -61,12 +61,10 @@
 
                     <!-- Middle: The Action Button -->
                     <div class="col-md-2 text-center">
-                        <!-- Update the action URL -->
                         <form action="{{ url_for('main.swap_players') }}" method="POST" id="swap-form">
                             <input type="hidden" name="mlb_player_id" id="input-mlb-id">
                             <input type="hidden" name="aaa_player_id" id="input-aaa-id">
         
-                            <!-- Change type="button" to type="submit" -->
                             <button type="submit" class="btn btn-warning btn-lg fw-bold w-100 shadow-sm" id="btn-execute-swap" disabled>
                                 🔄 SWAP
                             </button>
@@ -92,8 +90,8 @@
     <div class="col-12 d-flex justify-content-center align-items-center">
         <span class="me-3 fw-bold fs-5 text-dark">Viewing Stats:</span>
         <select id="stat-competition-select" class="form-select form-select-lg w-auto shadow-sm fw-bold text-primary" style="cursor: pointer; border: 2px solid #0d6efd;">
-            <option value="mlb" selected>MLB Regular Season</option>
-            <option value="aaa">AAA Regular Season</option>
+            <option value="mlb">Majors Regular Season</option>
+            <option value="aaa">Minors Regular Season</option>
             <option value="cup">Dynasty Cup</option>
             <option value="playoffs">Playoffs</option>
         </select>
@@ -106,8 +104,10 @@
     <!-- MLB Roster -->
     <div class="col-md-6">
         <div class="card shadow-sm border-0">
-            <!-- Calculate true MLB count by ignoring the 'EMPTY' placeholder rows -->
+            <!-- Calculate true MLB count and force Empty slots to the top -->
             {% set true_mlb_count = mlb_roster | rejectattr('id', 'equalto', 'EMPTY') | list | length %}
+            {% set display_mlb = (mlb_roster | selectattr('id', 'equalto', 'EMPTY') | list) + (mlb_roster | rejectattr('id', 'equalto', 'EMPTY') | list) %}
+            
             <div class="card-header bg-danger text-white fw-bold d-flex justify-content-between">
                 <span>MLB Active Roster</span>
                 <span>({{ true_mlb_count }} / 26)</span>
@@ -124,8 +124,7 @@
                         </tr>
                     </thead>
                     <tbody id="mlb-table-body">
-                        {% for p in mlb_roster %}
-                        <!-- We embed ALL ratings and stats into data attributes so JS can read them instantly -->
+                        {% for p in display_mlb %}
                         <tr class="roster-row mlb-row" 
                             data-id="{{ p.id }}" data-name="{{ p.name }}" data-pos="{{ p.pos }}" data-age="{{ p.age }}"
                             data-role="{{ p.role }}" data-ovr="{{ p.ovr }}"
@@ -155,7 +154,6 @@
                                 {% if p.id == 'EMPTY' %}
                                     {{ p.name }}
                                 {% else %}
-                                    <!-- The link to the player profile -->
                                     <a href="{{ url_for('main.player_profile', player_id=p.id) }}" 
                                     class="text-primary text-decoration-none" 
                                     target="_blank" 
@@ -182,10 +180,15 @@
     <!-- AAA Roster -->
     <div class="col-md-6">
         <div class="card shadow-sm border-0">
+            <!-- Calculate true AAA count and force Empty slots to the top -->
+            {% set true_aaa_count = aaa_roster | rejectattr('id', 'equalto', 'EMPTY') | list | length %}
+            {% set display_aaa = (aaa_roster | selectattr('id', 'equalto', 'EMPTY') | list) + (aaa_roster | rejectattr('id', 'equalto', 'EMPTY') | list) %}
+            
             <div class="card-header bg-primary text-white fw-bold d-flex justify-content-between">
                 <span>AAA Active Roster</span>
-                <span>({{ aaa_roster | length }} / 30)</span>
+                <span>({{ true_aaa_count }} / 30)</span>
             </div>
+            
             <div class="card-body p-0 table-responsive" style="max-height: 600px; overflow-y: auto;">
                 <table class="table table-hover align-middle mb-0 text-center" style="font-size: 0.85rem;">
                     <thead class="table-light sticky-top">
@@ -197,7 +200,7 @@
                         </tr>
                     </thead>
                     <tbody id="aaa-table-body">
-                        {% for p in aaa_roster %}
+                        {% for p in display_aaa %}
                         <tr class="roster-row aaa-row" 
                             data-id="{{ p.id }}" data-name="{{ p.name }}" data-pos="{{ p.pos }}" data-age="{{ p.age }}"
                             data-role="{{ p.role }}" data-ovr="{{ p.ovr }}"
@@ -216,18 +219,32 @@
                             data-playoffs-g="{{ p.playoffs_g|default('0') }}" data-playoffs-avg="{{ p.playoffs_avg|default('.000') }}" data-playoffs-hr="{{ p.playoffs_hr|default('0') }}" data-playoffs-rbi="{{ p.playoffs_rbi|default('0') }}" data-playoffs-ops="{{ p.playoffs_ops|default('.000') }}"
                             data-playoffs-ip="{{ p.playoffs_ip|default('0.0') }}" data-playoffs-era="{{ p.playoffs_era|default('0.00') }}" data-playoffs-k="{{ p.playoffs_k|default('0') }}" data-playoffs-whip="{{ p.playoffs_whip|default('0.00') }}">
                             
-                            <td><span class="badge bg-secondary">{{ p.pos }}</span></td>
-                            <td class="text-start fw-bold text-dark">
-                                <a href="{{ url_for('main.player_profile', player_id=p.id) }}" 
-                                    class="text-primary text-decoration-none" 
-                                    target="_blank" 
-                                    onclick="event.stopPropagation();">
-                                        {{ p.name }}
-                                </a> 
-                                <span class="text-muted fw-normal" style="font-size: 0.8em;">({{ p.age }})</span>
+                            <td>
+                                {% if p.id == 'EMPTY' %}
+                                    <span class="badge bg-dark">--</span>
+                                {% else %}
+                                    <span class="badge bg-secondary">{{ p.pos }}</span>
+                                {% endif %}
                             </td>
-                            <td class="fw-bold fs-6" style="color: {{ get_main_text(p.ovr) }}; background-color: {{ get_main_bg(p.ovr) }};">{{ p.ovr }}</td>
-                            <td class="fw-bold" style="color: {{ get_stamina_color(p.stam_cur, p.stam_tot) }};">{{ p.stam_cur }}/{{ p.stam_tot }}</td>
+                            <td class="text-start fw-bold text-dark">
+                                {% if p.id == 'EMPTY' %}
+                                    {{ p.name }}
+                                {% else %}
+                                    <a href="{{ url_for('main.player_profile', player_id=p.id) }}" 
+                                        class="text-primary text-decoration-none" 
+                                        target="_blank" 
+                                        onclick="event.stopPropagation();">
+                                        {{ p.name }}
+                                    </a> 
+                                    <span class="text-muted fw-normal" style="font-size: 0.8em;">({{ p.age }})</span>
+                                {% endif %}
+                            </td>
+                            <td class="fw-bold fs-6" style="color: {{ get_main_text(p.ovr) if p.ovr > 0 else '#000' }}; background-color: {{ get_main_bg(p.ovr) if p.ovr > 0 else 'transparent' }};">
+                                {{ p.ovr if p.ovr > 0 else '--' }}
+                            </td>
+                            <td class="fw-bold" style="color: {{ get_stamina_color(p.stam_cur, p.stam_tot) if p.id != 'EMPTY' else '#000' }};">
+                                {{ p.stam_cur }}/{{ p.stam_tot }}
+                            </td>
                         </tr>
                         {% endfor %}
                     </tbody>

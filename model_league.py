@@ -5,6 +5,7 @@
 # and seasonal statistical shifts.
 # ==========================================
 import random
+from extensions import db
 
 class LeagueEnvironment:
     def __init__(self, power=1.0, contact=1.0, speed=1.0, pitching=1.0, defense=1.0, max_shift=0.015):
@@ -32,3 +33,22 @@ class LeagueEnvironment:
             new_value = self.era_modifiers[axis] + shift
             floor, ceiling = self.bounds[axis]
             self.era_modifiers[axis] = max(floor, min(ceiling, new_value))
+
+# --- DATABASE MODELS ---
+
+class World(db.Model):
+    __tablename__ = 'worlds'
+    world_id = db.Column(db.Integer, primary_key=True)
+    world_name = db.Column(db.String(100), nullable=False)
+    is_active = db.Column(db.Boolean, default=True)
+
+class SeasonResult(db.Model):
+    __tablename__ = 'season_results'
+    game_id = db.Column(db.Integer, primary_key=True)
+    season = db.Column(db.Integer, nullable=False)
+    day = db.Column(db.Integer, nullable=False)
+    competition = db.Column(db.String(50))
+    away_team_id = db.Column(db.Integer, db.ForeignKey('teams.team_id'), nullable=False)
+    away_score = db.Column(db.Integer, default=0)
+    home_team_id = db.Column(db.Integer, db.ForeignKey('teams.team_id'), nullable=False)
+    home_score = db.Column(db.Integer, default=0)

@@ -10,42 +10,59 @@
     <!-- Dynasty Ball Custom Themes & Layout -->
     <style>
         /* 1. DYNAMIC TEAM COLORS */
-        /* Jinja checks for passed variables; if missing, falls back to Plum and White */
         :root {
             --team-color-1: {{ team_color_1 | default('#000000') }};
             --team-color-2: {{ team_color_2 | default('#ffffff') }};
         }
 
+        /* 2. THE FRAMED LAYOUT */
         body { 
-            padding-top: 56px; 
+            display: flex;
+            flex-direction: column;
+            height: 100vh; 
+            margin: 0;
+            overflow: hidden; /* Prevents full page scroll */
             background-color: #fcf1f8; 
+            padding-top: 56px; /* Space for fixed navbar */
         }
         
-        /* 2. THE DYNAMIC NAVBAR OVERRIDES */
+        /* The Middle frame containing sidebar and scrollable content */
+        .middle-wrapper {
+            display: flex;
+            flex-grow: 1;
+            overflow: hidden; /* Constrain children */
+        }
+
+        /* 3. DYNAMIC NAVBAR OVERRIDES */
         .navbar-dynamic {
             background-color: var(--team-color-1) !important;
+            height: 56px;
         }
         
-        /* Force all brand, text, and links to use Team Color 2 */
         .navbar-dynamic .navbar-brand,
         .navbar-dynamic .team-title,
         .navbar-dynamic .nav-link {
             color: var(--team-color-2) !important;
         }
 
-        /* Give the navigation links a clean fade effect on hover */
         .navbar-dynamic .nav-link:hover {
             opacity: 0.75;
         }
 
-        /* 3. SIDEBAR & AD STYLES (Unchanged) */
+        /* 4. SIDEBAR STYLES */
         @media (min-width: 768px) {
             .col-custom-sidebar { flex: 0 0 15%; max-width: 15%; width: 15%; }
             .col-custom-main { flex: 0 0 85%; max-width: 85%; width: 85%; }
         }
+        
         .sidebar-lavender {
-            background-color: #e6ddec; min-height: calc(100vh - 56px); border-right: 1px solid #d4d0e6; display: flex; flex-direction: column;
+            background-color: #e6ddec; 
+            border-right: 1px solid #d4d0e6; 
+            display: flex; 
+            flex-direction: column;
+            overflow-y: auto; /* Allow sidebar itself to scroll if needed */
         }
+        
         .sidebar-lavender .nav-link { color: #000000 !important; transition: all 0.2s ease-in-out; }
         .sidebar-lavender .nav-link:hover { background-color: rgba(52, 22, 58, 0.08); border-radius: 4px; }
         .sidebar-lavender .nav-link.active-link { 
@@ -55,15 +72,57 @@
             border: 1px solid #1d0622; 
             border-radius: 4px; 
         }
+        
         .team-title { text-shadow: 1px 1px 2px rgba(0,0,0,0.4); }
 
-        .ad-space {
-            border: 2px dashed #9c7e68; background-color: rgba(0,0,0,0.03); color: #888; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 0.8rem; font-weight: bold; text-transform: uppercase; letter-spacing: 1px;
+        /* 5. MAIN CONTENT AREA (Scrollable) */
+        .main-scroll-area {
+            flex-grow: 1;
+            overflow-y: auto; 
+            padding-bottom: 20px;
         }
-        .ad-horizontal { width: 100%; min-height: 90px; }
-        .ad-vertical { width: 100%; min-height: 600px; }
 
-        /* 4. DYNAMIC MODULE BANNERS */
+        /* NEW: Shrinks the content to fit more on screen */
+        .content-scaler {
+            zoom: 0.90; /* Scales everything down to 85% */
+        }
+
+        /* 6. AD STYLES */
+        .ad-space {
+            border: 2px dashed #9c7e68; 
+            background-color: rgba(0,0,0,0.03); 
+            color: #888; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            text-align: center; 
+            font-size: 0.8rem; 
+            font-weight: bold; 
+            text-transform: uppercase; 
+            letter-spacing: 1px;
+        }
+        
+        /* Specific Ad Sizes */
+        .ad-leaderboard { width: 728px; height: 90px; margin: 0 auto; }
+        .ad-skyscraper { width: 160px; height: 600px; margin: 0 auto; }
+        
+        /* Container blocks for horizontal ads to keep them centered */
+        .ad-top-container {
+            background-color: #eaf4f4;
+            padding: 10px 0;
+            border-bottom: 1px solid #cbd6dd;
+            flex-shrink: 0;
+        }
+        
+        .ad-bottom-container {
+            background-color: #eaf4f4;
+            padding: 10px 0;
+            border-top: 1px solid #cbd6dd;
+            flex-shrink: 0;
+            z-index: 10;
+        }
+
+        /* 7. DYNAMIC MODULE BANNERS */
         .card-header-dynamic {
             background-color: var(--team-color-1) !important;
             color: var(--team-color-2) !important;
@@ -73,7 +132,7 @@
 </head>
 <body>
 
-    <!-- 1. The Dynamic Top Banner -->
+    <!-- TOP FRAME: Navigation -->
     <nav class="navbar navbar-expand-lg navbar-dynamic fixed-top shadow-sm z-3">
         <div class="container-fluid position-relative">
             <a class="navbar-brand fw-bold" href="{{ url_for('main.home') }}">⚾ Dynasty Baseball</a>
@@ -82,7 +141,6 @@
             </span>
             <div class="collapse navbar-collapse justify-content-end" id="navbarRight">
                 <ul class="navbar-nav">
-                    <!-- LINK UPDATED HERE -->
                     <li class="nav-item"><a class="nav-link" href="{{ url_for('main.front_office', team_id=team_id|default('1')) }}">Front Office</a></li>
                     <li class="nav-item"><a class="nav-link" href="#">Free Agency</a></li>
                     <li class="nav-item"><a class="nav-link" href="#">News</a></li>
@@ -102,98 +160,118 @@
         </div>
     </nav>
 
-    <!-- 2. Main Layout Grid -->
-    <div class="container-fluid">
-        <div class="row">
+    <!-- MIDDLE FRAME: Contains Sidebar and Main Content -->
+    <div class="middle-wrapper container-fluid p-0">
+        
+        <!-- The Left Sidebar (15%) -->
+        <nav class="col-12 col-md-3 col-custom-sidebar sidebar-lavender shadow-sm pt-3 d-flex flex-column justify-content-between">
             
-            <!-- The Left Sidebar (15%) -->
-            <nav class="col-12 col-md-3 col-custom-sidebar sidebar-lavender shadow-sm pt-3 sticky-top">
-                <ul class="nav flex-column px-2 mb-auto">
-                    
-                    <h6 class="sidebar-heading d-flex justify-content-between align-items-center px-2 mt-3 mb-2 text-dark fw-bold text-uppercase opacity-50 small">
-                        <span>Team Management</span>
-                    </h6>
-                    
-                    <!-- LINK UPDATED HERE -->
-                    <li class="nav-item mb-1">
-                        <a class="nav-link {% if request.endpoint == 'main.front_office' or request.endpoint == 'front_office' %}active-link{% endif %}" href="{{ url_for('main.front_office', team_id=team_id|default('1')) }}">
-                            <span class="me-2">🏢</span> Front Office
-                        </a>
-                    </li>
-                    <li class="nav-item mb-1">
-                        <a class="nav-link {% if request.endpoint == 'major_league' %}active-link{% endif %}" href="{{ url_for('main.major_league') }}">
-                            <span class="me-2">⚾</span> Major League Team
-                        </a>
-                    </li>
-                    <li class="nav-item mb-1">
-                        <a class="nav-link {% if request.endpoint == 'minor_league' %}active-link{% endif %}" href="{{ url_for('main.minor_league') }}">
-                            <span class="me-2">🧢</span> Minor League Team
-                        </a>
-                    </li>
-                    <li class="nav-item mb-1">
-                        <a class="nav-link {% if request.endpoint == 'call_ups' %}active-link{% endif %}" href="{{ url_for('main.call_ups') }}">
-                            <span class="me-2">🔄</span> Call-Ups
-                        </a>
-                    </li>
-                    <li class="nav-item mb-1">
-                        <a class="nav-link" href="#">
-                            <span class="me-2">🤝</span> Free Agency
-                        </a>
-                    </li>
-                    <li class="nav-item mb-1">
-                        <a class="nav-link" href="#">
-                            <span class="me-2">📋</span> Draft
-                        </a>
-                    </li>
-
-                    <h6 class="sidebar-heading d-flex justify-content-between align-items-center px-2 mt-4 mb-2 text-dark fw-bold text-uppercase opacity-50 small">
-                        <span>League History</span>
-                    </h6>
-
-                    <li class="nav-item mb-1">
-                        <a class="nav-link" href="#">
-                            <span class="me-2">📖</span> Record Books
-                        </a>
-                    </li>
-                    <li class="nav-item mb-1">
-                        <a class="nav-link" href="#">
-                            <span class="me-2">🏆</span> History and Awards
-                        </a>
-                    </li>
-                    <li class="nav-item mb-1">
-                        <a class="nav-link" href="#">
-                            <span class="me-2">🏛️</span> Hall of Fame
-                        </a>
-                    </li>
-                </ul>
-
-                <!-- Vertical Ad Area in the Sidebar -->
-                <div class="mt-4 px-2 pb-4">
-                    <div class="ad-space ad-vertical rounded">
-                        Advertisement<br>(160 x 600)
-                    </div>
-                </div>
-            </nav>
-
-            <!-- The Main Content Area (85%) -->
-            <main class="col-12 col-md-9 col-custom-main px-md-4 pt-4">
+            <!-- Navigation Links Wrapper (flex-grow-1 pushes the ad down) -->
+            <ul class="nav flex-column px-2 mb-auto flex-grow-1">
                 
-                <!-- Horizontal Ad Area -->
-                <div class="row mb-4">
-                    <div class="col-12">
-                        <div class="ad-space ad-horizontal rounded shadow-sm">
-                            Advertisement (728 x 90)
-                        </div>
-                    </div>
-                </div>
+                <!-- SECTION 1: FRANCHISE MANAGEMENT -->
+                <h6 class="sidebar-heading d-flex justify-content-between align-items-center px-2 mt-3 mb-2 text-dark fw-bold text-uppercase opacity-50 small">
+                    <span>Franchise Management</span>
+                </h6>
+                <li class="nav-item mb-1">
+                    <a class="nav-link {% if request.endpoint in ['main.front_office', 'front_office'] %}active-link{% endif %}" href="{{ url_for('main.front_office', team_id=team_id|default('1')) }}">
+                        <span class="me-2">🏢</span> Front Office
+                    </a>
+                </li>
+                <li class="nav-item mb-1">
+                    <a class="nav-link" href="#">
+                        <span class="me-2">🏟️</span> Stadium & Upgrades
+                    </a>
+                </li>
 
-                <!-- Your dynamic pages will load right beneath the ad -->
-                {% block content %}
-                {% endblock %}
-                
-            </main>
+                <!-- SECTION 2: TEAM MANAGEMENT -->
+                <h6 class="sidebar-heading d-flex justify-content-between align-items-center px-2 mt-4 mb-2 text-dark fw-bold text-uppercase opacity-50 small">
+                    <span>Team Management</span>
+                </h6>
+                <li class="nav-item mb-1">
+                    <a class="nav-link {% if request.endpoint == 'major_league' %}active-link{% endif %}" href="{{ url_for('main.major_league') }}">
+                        <span class="me-2">⚾</span> Majors Roster
+                    </a>
+                </li>
+                <li class="nav-item mb-1">
+                    <a class="nav-link {% if request.endpoint == 'minor_league' %}active-link{% endif %}" href="{{ url_for('main.minor_league') }}">
+                        <span class="me-2">🧢</span> Minors Roster
+                    </a>
+                </li>
+                <li class="nav-item mb-1">
+                    <a class="nav-link {% if request.endpoint == 'call_ups' %}active-link{% endif %}" href="{{ url_for('main.call_ups') }}">
+                        <span class="me-2">🔄</span> Call-Ups
+                    </a>
+                </li>
+                <li class="nav-item mb-1">
+                    <a class="nav-link {% if request.endpoint in ['main.free_agency', 'free_agency'] %}active-link{% endif %}" href="{{ url_for('main.free_agency', team_id=team_id|default('1')) }}">
+                        <span class="me-2">🤝</span> Free Agency
+                    </a>
+                </li>
+                <li class="nav-item mb-1">
+                    <a class="nav-link" href="#">
+                        <span class="me-2">📋</span> Draft
+                    </a>
+                </li>
+
+                <!-- SECTION 3: LEAGUE HISTORY -->
+                <h6 class="sidebar-heading d-flex justify-content-between align-items-center px-2 mt-4 mb-2 text-dark fw-bold text-uppercase opacity-50 small">
+                    <span>League History</span>
+                </h6>
+                <li class="nav-item mb-1">
+                    <a class="nav-link" href="#">
+                        <span class="me-2">📖</span> Record Books
+                    </a>
+                </li>
+                <li class="nav-item mb-1">
+                    <a class="nav-link" href="#">
+                        <span class="me-2">🏆</span> History & Awards
+                    </a>
+                </li>
+                <li class="nav-item mb-1">
+                    <a class="nav-link" href="#">
+                        <span class="me-2">🏛️</span> Hall of Fame
+                    </a>
+                </li>
+            </ul>
+
+            <!-- Vertical Ad Area in the Sidebar (Stacks cleanly below nav) -->
+            <div class="mt-4 px-2 pb-4 d-none d-md-block w-100">
+                <div class="ad-space ad-skyscraper rounded shadow-sm">
+                    Advertisement<br>(160 x 600)
+                </div>
+            </div>
+        </nav>
+
+        <!-- The Main Content Area (85%) -->
+        <main class="col-12 col-md-9 col-custom-main d-flex flex-column p-0">
             
-        </div>
+            <!-- Top Horizontal Ad (Fixed within main content column) -->
+            <div class="ad-top-container w-100">
+                <div class="ad-space ad-leaderboard rounded shadow-sm">
+                    Advertisement (728 x 90)
+                </div>
+            </div>
+
+            <!-- Scrollable Content Section -->
+            <div class="main-scroll-area px-md-4 pt-4">
+                
+                <!-- NEW: Wrapper that scales everything inside down by 15% -->
+                <div class="content-scaler">
+                    {% block content %}
+                    {% endblock %}
+                </div>
+                
+            </div>
+            
+            <!-- Bottom Horizontal Ad (Fixed at bottom of main content column) -->
+            <div class="ad-bottom-container w-100">
+                <div class="ad-space ad-leaderboard rounded shadow-sm">
+                    Advertisement (728 x 90)
+                </div>
+            </div>
+
+        </main>
     </div>
 
     <!-- Bootstrap Javascript Bundle -->
